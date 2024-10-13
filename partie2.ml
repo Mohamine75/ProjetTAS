@@ -1,3 +1,5 @@
+
+
 type pterm = Var of string
            | App of pterm * pterm
            | Abs of string * pterm
@@ -43,28 +45,26 @@ let rec substitution (x : string) (v : pterm) (t : pterm) : pterm =
   | Abs (y, t1) ->
       if y = x then t  (* Ne pas substituer si c'est la même variable *)
       else 
-        let v' = alphaconv v in (* Renomme v pour éviter les conflits *)
-        Abs (y, substitution x v' t1)  (* Applique la substitution à t1 *)
+        Abs (y, substitution x v t1)  (* Applique la substitution à t1 *)
 
 
 
 let rec ltr_ctb_step (t : pterm) : pterm option =
   match t with
-  | Var _ -> None  (* Pas de réduction pour une variable *)
-  | Abs _ -> None  (* Pas de réduction pour une abstraction *)
-  | App (Abs (x, t1), t2) -> 
-      if isValeur t2 then 
-        Some (substitution x t2 t1)  (* Appliquer la substitution si t2 est une valeur *)
-      else 
-        (match ltr_ctb_step t2 with  (* Sinon, essayer de réduire t2 *)
-        | Some t2' -> Some (App (Abs (x, t1), t2'))  (* Appliquer la réduction à t2 *)
-        | None -> None ) (* Si t2 ne peut pas être réduit *)
+  | Var _ -> None  
+  | Abs (x, body) -> (match ltr_ctb_step body with
+     | Some new_body -> Some (Abs (x, new_body))
+     | None -> None)
+  | App (Abs (x, t1), t2) ->
+        (match ltr_ctb_step t2 with  
+        | Some t2' -> Some (substitution x t2' t1)  
+        | None -> Some(substitution x t2 t1) )
   | App (m, n) -> 
-      match ltr_ctb_step m with  (* Essayer de réduire m d'abord *)
-      | Some m' -> Some (App (m', n))  (* Réduire m et garder n *)
-      | None -> match ltr_ctb_step n with  (* Sinon essayer de réduire n *)
-                | Some n' -> Some (App (m, n'))  (* Réduire n *)
-                | None -> None  (* Si m et n ne peuvent pas être réduits *)
+      match ltr_ctb_step m with  
+      | Some m' -> Some (App (m', n))  
+      | None -> match ltr_ctb_step n with  
+                | Some n' -> Some (App (m, n'))  
+                | None -> None  
         
             
 
@@ -79,8 +79,8 @@ let k = Abs("x", Abs("y", Var "x"))
 let s = Abs("x", Abs("y", Abs("z", App(App(Var "x", Var "z"), App(Var "y", Var "z")))))
 
 (* Appliquons SKK *) 
-let skk = App(App(s, k),k)
-let ii = App(App(k,i),i)
+let skk = App(App(s,k),k)
+let ii = App((k,k))
 let result = ltr_cbv_norm(skk)
 (* Imprimer le résultat final *)
 let () = print_endline (print_term result)
