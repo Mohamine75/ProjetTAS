@@ -56,3 +56,13 @@ let rec occur_check (s:string) (ty:ptype) : bool  =
   | Var x -> if x=s then true else false
   | _ -> false
 
+let rec substitution_type (s: string) (t_sub: ptype) (ty: ptype) : ptype =
+  match ty with
+  | Var x -> if x = s then t_sub else Var x  (* Remplace la variable de type si c'est la bonne *)
+  | Arr (t1, t2) -> Arr (substitution_type s t_sub t1, substitution_type s t_sub t2)  (* Applique la substitution aux sous-types *)
+  | _ -> ty  (* Sinon, on laisse le type inchangé *)
+  
+let rec substitution_systeme (s: string) (t_sub: ptype) (systeme: (ptype * ptype) list) : (ptype * ptype) list =
+  List.map (fun (t1, t2) -> 
+    (substitution_type s t_sub t1, substitution_type s t_sub t2)
+  ) systeme
