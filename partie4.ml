@@ -85,74 +85,74 @@ let rec cherche_type (v : string) (e : env) : ptype =
     | Forall (x, t) -> List.filter ((<>) x) (free_type_vars t)
     | Nat -> []
   
-    let rec genere_equa (te : pterm) (ty : ptype) (e : env) : equa =
-      match te with
-      | Var v -> 
-          let t_var = cherche_type v e in
-          [(t_var, ty)]
-      
-      | Abs (x, t) -> 
-          let ta = Varp (nouvelle_var_t ()) in
-          let tr = Varp (nouvelle_var_t ()) in
-          let e' = (x, ta) :: e in
-          let equa_t = genere_equa t tr e' in
-          (ty, Arr (ta, tr)) :: equa_t
-      
-      | App (t1, t2) -> 
-          let ta = Varp (nouvelle_var_t ()) in
-          let tr = Varp (nouvelle_var_t ()) in
-          let equa_t1 = genere_equa t1 (Arr (ta, tr)) e in
-          let equa_t2 = genere_equa t2 ta e in
-          equa_t1 @ equa_t2
-    
-      | Int _ -> [(ty, Nat)]  (* Un entier a le type Nat *)
-    
-      | IfZero (cond, then_br, else_br) -> 
-          let equa_cond = genere_equa cond Nat e in  (* La condition doit être de type Nat *)
-          let equa_then = genere_equa then_br ty e in  (* Génère les équations pour le then avec cible ty *)
-          let equa_else = genere_equa else_br ty e in  (* Génère les équations pour le else avec cible ty *)
-          equa_cond @ equa_then @ equa_else
-    
-      | IfEmpty (cond, then_br, else_br) -> 
-          let ta = Varp (nouvelle_var_t ()) in  (* Type générique pour les éléments de la liste *)
-          let equa_cond = genere_equa cond (List ta) e in  (* La condition doit être de type List ta *)
-          let equa_then = genere_equa then_br ty e in
-          let equa_else = genere_equa else_br ty e in
-          equa_cond @ equa_then @ equa_else
-    
-      | Let (x, t1, t2) -> 
-          let t0 = Varp (nouvelle_var_t ()) in
-          let equa_t1 = genere_equa t1 t0 e in
-          let gen_t0 = generaliser_type t0 e in  (* Généraliser le type de t1 *)
-          let e' = (x, gen_t0) :: e in
-          let equa_t2 = genere_equa t2 ty e' in
-          equa_t1 @ equa_t2
-    
-      | EmptyList -> 
-          let ta = Varp (nouvelle_var_t ()) in
-          [(ty, List ta)]  (* La liste vide est de type List ta pour un type quelconque ta *)
-    
-      | Add (t1, t2) -> 
-          let equa_t1 = genere_equa t1 Nat e in
-          let equa_t2 = genere_equa t2 Nat e in
-          [(ty, Nat)] @ equa_t1 @ equa_t2  (* Addition : les deux opérandes et le résultat doivent être de type Nat *)
-    
-      | Sub (t1, t2) -> 
-          let equa_t1 = genere_equa t1 Nat e in
-          let equa_t2 = genere_equa t2 Nat e in
-          [(ty, Nat)] @ equa_t1 @ equa_t2  (* Soustraction : même principe que pour l'addition *)
-    
-      | Cons (head, tail) -> 
-          let ta = Varp (nouvelle_var_t ()) in
-          let equa_head = genere_equa head ta e in
-          let equa_tail = genere_equa tail (List ta) e in
-          (ty, List ta) :: equa_head @ equa_tail  (* La tête doit être de type ta, et la queue de type List ta *)
-    
-      | Fix (f, body) -> 
-          let tf = Varp (nouvelle_var_t ()) in  (* Type de la fonction récursive *)
-          let e' = (f, tf) :: e in  (* Ajouter la fonction récursive à l'environnement *)
-          let equa_body = genere_equa body tf e' in
-          (ty, tf) :: equa_body  (* Le type cible ty doit être égal au type de la fonction récursive *)
+let rec genere_equa (te : pterm) (ty : ptype) (e : env) : equa =
+  match te with
+  | Var v -> 
+      let t_var = cherche_type v e in
+      [(t_var, ty)]
+  
+  | Abs (x, t) -> 
+      let ta = Varp (nouvelle_var_t ()) in
+      let tr = Varp (nouvelle_var_t ()) in
+      let e' = (x, ta) :: e in
+      let equa_t = genere_equa t tr e' in
+      (ty, Arr (ta, tr)) :: equa_t
+  
+  | App (t1, t2) -> 
+      let ta = Varp (nouvelle_var_t ()) in
+      let tr = Varp (nouvelle_var_t ()) in
+      let equa_t1 = genere_equa t1 (Arr (ta, tr)) e in
+      let equa_t2 = genere_equa t2 ta e in
+      equa_t1 @ equa_t2
+
+  | Int _ -> [(ty, Nat)]  (* Un entier a le type Nat *)
+
+  | IfZero (cond, then_br, else_br) -> 
+      let equa_cond = genere_equa cond Nat e in  (* La condition doit être de type Nat *)
+      let equa_then = genere_equa then_br ty e in  (* Génère les équations pour le then avec cible ty *)
+      let equa_else = genere_equa else_br ty e in  (* Génère les équations pour le else avec cible ty *)
+      equa_cond @ equa_then @ equa_else
+
+  | IfEmpty (cond, then_br, else_br) -> 
+      let ta = Varp (nouvelle_var_t ()) in  (* Type générique pour les éléments de la liste *)
+      let equa_cond = genere_equa cond (List ta) e in  (* La condition doit être de type List ta *)
+      let equa_then = genere_equa then_br ty e in
+      let equa_else = genere_equa else_br ty e in
+      equa_cond @ equa_then @ equa_else
+
+  | Let (x, t1, t2) -> 
+      let t0 = Varp (nouvelle_var_t ()) in
+      let equa_t1 = genere_equa t1 t0 e in
+      let gen_t0 = generaliser_type t0 e in  (* Généraliser le type de t1 *)
+      let e' = (x, gen_t0) :: e in
+      let equa_t2 = genere_equa t2 ty e' in
+      equa_t1 @ equa_t2
+
+  | EmptyList -> 
+      let ta = Varp (nouvelle_var_t ()) in
+      [(ty, List ta)]  (* La liste vide est de type List ta pour un type quelconque ta *)
+
+  | Add (t1, t2) -> 
+      let equa_t1 = genere_equa t1 Nat e in
+      let equa_t2 = genere_equa t2 Nat e in
+      [(ty, Nat)] @ equa_t1 @ equa_t2  (* Addition : les deux opérandes et le résultat doivent être de type Nat *)
+
+  | Sub (t1, t2) -> 
+      let equa_t1 = genere_equa t1 Nat e in
+      let equa_t2 = genere_equa t2 Nat e in
+      [(ty, Nat)] @ equa_t1 @ equa_t2  (* Soustraction : même principe que pour l'addition *)
+
+  | Cons (head, tail) -> 
+      let ta = Varp (nouvelle_var_t ()) in
+      let equa_head = genere_equa head ta e in
+      let equa_tail = genere_equa tail (List ta) e in
+      (ty, List ta) :: equa_head @ equa_tail  (* La tête doit être de type ta, et la queue de type List ta *)
+
+  | Fix (f, body) -> 
+      let tf = Varp (nouvelle_var_t ()) in  (* Type de la fonction récursive *)
+      let e' = (f, tf) :: e in  (* Ajouter la fonction récursive à l'environnement *)
+      let equa_body = genere_equa body tf e' in
+      (ty, tf) :: equa_body  (* Le type cible ty doit être égal au type de la fonction récursive *)
     
 
 
@@ -476,92 +476,34 @@ let () =
   print_endline ("let x = 0 in ifzero x then 42 else 0 = " ^ (print_term (ltr_cbv_norm test_let_if)) ^ " (attendu : Int 42)")
 
 
-
+  let print_equations (eq : equa) =
+    String.concat "; " (List.map (fun (t1, t2) -> print_type t1 ^ " = " ^ print_type t2) eq)
+  
+  let test_unification (eq : equa) =
+    try
+      let result = uni_step eq in
+      print_endline ("Équations unifiées : " ^ print_equations result)
+    with
+    | Failure msg -> print_endline ("Erreur : " ^ msg)
+  
   (*tests nouveau typage*)
-  (* Tests de Fonctions Polymorphes *)
+  let eq1 = [(Forall ("X", Varp "X"), Varp "Y")]
+  (* Résultat attendu : [T1 = Y], où T1 est une nouvelle variable de type *)
+  
+  let () = print_endline "Test 1 : Ouvrir un type ∀ à gauche";
+  test_unification eq1
+  let eq2 = [(Varp "Y", Forall ("X", Arr (Varp "X", Varp "X")))]
+(* Résultat attendu : [Y = (T2 -> T2)], où T2 est une nouvelle variable de type *)
 
-let id = Abs ("x", Var "x")  (* fun x -> x *)
+let () = print_endline "Test 2 : Ouvrir un type ∀ à droite";
+test_unification eq2
+let eq3 = [(List (Varp "A"), List (Varp "B"))]
+(* Résultat attendu : [A = B] *)
 
-(* Test de typage pour la fonction identité polymorphe *)
-let () = match infere_type id [] with
-  | Some t -> print_endline ("Type de id : " ^ print_type t ^ " (attendu : ∀X. X -> X)")
-  | None -> print_endline "Échec d'inférence de type pour id"
+let () = print_endline "Test 3 : Unification de listes";
+test_unification eq3
+let eq4 = [(Varp "A", Arr (Varp "B", Varp "C"))]
+(* Résultat attendu : Erreur "Unification échoue : types incompatibles" *)
 
-let double_apply = Abs ("f", Abs ("x", App (Var "f", App (Var "f", Var "x"))))
-(* fun f x -> f (f x) *)
-
-(* Test de typage pour la fonction de double application polymorphe *)
-let () = match infere_type double_apply [] with
-  | Some t -> print_endline ("Type de double_apply : " ^ print_type t ^ " (attendu : ∀X. (X -> X) -> X -> X)")
-  | None -> print_endline "Échec d'inférence de type pour double_apply"
-
-(* Tests de Listes *)
-
-let empty_list = EmptyList
-
-(* Test de typage pour la liste vide *)
-let () = match infere_type empty_list [] with
-  | Some t -> print_endline ("Type de [] : " ^ print_type t ^ " (attendu : ∀X. [X])")
-  | None -> print_endline "Échec d'inférence de type pour []"
-
-let int_list = Cons (Int 1, Cons (Int 2, EmptyList))
-
-(* Test de typage pour une liste d'entiers *)
-let () = match infere_type int_list [] with
-  | Some t -> print_endline ("Type de [1; 2] : " ^ print_type t ^ " (attendu : [N])")
-  | None -> print_endline "Échec d'inférence de type pour [1; 2]"
-
-(* Tests d'Opérations Arithmétiques *)
-
-let add_test = Add (Int 3, Int 5)
-
-(* Test de typage pour une addition *)
-let () = match infere_type add_test [] with
-  | Some t -> print_endline ("Type de 3 + 5 : " ^ print_type t ^ " (attendu : N)")
-  | None -> print_endline "Échec d'inférence de type pour 3 + 5"
-
-let sub_test = Sub (Int 7, Int 2)
-
-(* Test de typage pour une soustraction *)
-let () = match infere_type sub_test [] with
-  | Some t -> print_endline ("Type de 7 - 2 : " ^ print_type t ^ " (attendu : N)")
-  | None -> print_endline "Échec d'inférence de type pour 7 - 2"
-
-(* Tests de Branches Conditionnelles *)
-
-let if_zero_test = IfZero (Int 0, Int 42, Int 0)
-
-(* Test de typage pour une condition ifzero *)
-let () = match infere_type if_zero_test [] with
-  | Some t -> print_endline ("Type de ifzero 0 then 42 else 0 : " ^ print_type t ^ " (attendu : N)")
-  | None -> print_endline "Échec d'inférence de type pour ifzero 0 then 42 else 0"
-
-let if_empty_test = IfEmpty (empty_list, Int 1, Int 0)
-
-(* Test de typage pour une condition ifempty *)
-let () = match infere_type if_empty_test [] with
-  | Some t -> print_endline ("Type de ifempty [] then 1 else 0 : " ^ print_type t ^ " (attendu : N)")
-  | None -> print_endline "Échec d'inférence de type pour ifempty [] then 1 else 0"
-
-(* Test de la Fonction Factorielle *)
-
-(* Fonction factorielle avec fix *)
-let factorial = 
-  Fix ("fact", Abs ("n", 
-    IfZero (Var "n", Int 1, 
-      App (App (Abs ("y", Add (Var "y", Int 1)), Var "n"), App (Var "fact", Sub (Var "n", Int 1)))
-    )))
-
-(* Test de typage pour la fonction factorielle *)
-let () = match infere_type factorial [] with
-  | Some t -> print_endline ("Type de factorial : " ^ print_type t ^ " (attendu : N -> N)")
-  | None -> print_endline "Échec d'inférence de type pour factorial"
-
-(* Test d'une Expression Let *)
-
-let let_test = Let ("x", Int 5, Add (Var "x", Int 3))
-
-(* Test de typage pour une expression let *)
-let () = match infere_type let_test [] with
-  | Some t -> print_endline ("Type de let x = 5 in x + 3 : " ^ print_type t ^ " (attendu : N)")
-  | None -> print_endline "Échec d'inférence de type pour let x = 5 in x + 3"
+let () = print_endline "Test 4 : Constructeurs incompatibles";
+test_unification eq4
