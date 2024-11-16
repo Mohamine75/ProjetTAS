@@ -440,41 +440,90 @@ let test_forall = Forall ("X", Arr (Varp "X", Nat))
 
 (* Test du pretty-printer *)
 let () = 
-  print_endline ("Type Nat : " ^ print_type test_nat);  (* Devrait afficher : Nat *)
-  print_endline ("Type List (T) : " ^ print_type test_list);  (* Devrait afficher : [T] *)
-  print_endline ("Type Forall (X, X -> Nat) : " ^ print_type test_forall)  (* Devrait afficher : ∀X.(X -> Nat) *)
-
-  let rec free_vars (t : ptype) : string list =
-  match t with
-  | Varp x -> [x]  (* Si c'est une variable, elle est libre *)
-  | Arr (t1, t2) -> List.append (free_vars t1) (free_vars t2)  (* On concatène les variables libres des deux sous-types *)
-  | Nat -> []  (* Les types Nat n'ont pas de variables libres *)
-  | List t -> free_vars t  (* Les listes ont des variables libres dans leur type interne *)
-  | Forall (x, t) -> List.filter (fun v -> v <> x) (free_vars t)  (* Ignore la variable quantifiée *)
+  print_endline ("Type Nat : " ^ print_type test_nat);  
+  print_endline ("Type List (T) : " ^ print_type test_list);  
+  print_endline ("Type Forall (X, X -> Nat) : " ^ print_type test_forall)
 
 
+
+
+let rec collect_vars ty acc =
+  match ty with
+  | Varp x -> if List.mem x acc then acc else x :: acc  
+  | Arr (t1, t2) -> collect_vars t1 (collect_vars t2 acc) 
+  | List t -> collect_vars t acc  
+  | Forall (x, t) -> collect_vars t acc  
+  | _ -> acc  
+  
   let generaliser (t: ptype) (env: env) : ptype =
-    let env_vars = List.map fst env in  (* Liste des variables dans l'environnement *)
-    let free_vars_in_t = List.filter (fun v -> not (List.mem v env_vars)) (free_vars t) in  (* Variables libres mais pas dans l'environnement *)
-    match free_vars_in_t with
-    | [] -> t  (* S'il n'y a pas de variables libres à généraliser, on retourne le type inchangé *)
-    | vars -> List.fold_left (fun acc v -> Forall (v, acc)) t vars  (* On ajoute un quantificateur ∀ pour chaque variable libre *)
+    let vars_env = List.fold_left (fun acc (_, ty) -> collect_vars ty acc) [] env in
+    let vars_libres = collect_vars t [] in
+    let vars_a_generaliser = List.filter (fun x -> not (List.mem x vars_env)) vars_libres in
+    if vars_a_generaliser = [] then t  
+    else List.fold_left (fun acc v -> Forall (v, acc)) t vars_a_generaliser  
   
+(* Test 1 : Aucune variable libre à généraliser *)
+let env1 = [("x", Varp "A")]
+let ty1 = Arr (Varp "A", Varp "B")
+let generalized_ty1 = generaliser ty1 env1
+let () = print_endline ("Test 1: " ^ print_type generalized_ty1)  (* Attendu: A -> B *)
 
-    let env1 = [("x", Varp "A")]
-    let ty1 = Arr (Varp "A", Varp "B")
-    let gen_ty1 = generaliser ty1 env1
-    
-  (* On devrait obtenir le type ∀B. (A -> B) *)
-  let () = print_endline (print_type gen_ty1)
-  
-  let env2 = [("x", Varp "A")]  (* L'environnement contient la variable x de type A *)
-  let ty2 = List (Arr (Varp "A", Varp "B"))  (* Type d'une liste de fonction A -> B *)
-  
-  let gen_ty2 = generaliser ty2 env2
-  (* On devrait obtenir le type ∀B. [A -> B] *)
-  let () = print_endline (print_type gen_ty2)
-  let eq1 = [(Varp "X", Varp "X")]
-let subs1 = []
-let result1 = uni_step eq1 subs1
-(* Résultat attendu : [("X", "X")] car les types sont déjà égaux, donc aucune substitution nécessaire *)
+(* Test 2 : Une variable libre à généraliser *)
+let env2 = [("x", Varp "A")]
+let ty2 = List (Arr (Varp "A", Varp "B"))
+let generalized_ty2 = generaliser ty2 env2
+let () = print_endline ("Test 2: " ^ print_type generalized_ty2)  (* Attendu: ∀B. [A -> B] *)
+
+(* Test 3 : Plusieurs variables libres à généraliser *)
+let env3 = [("x", Varp "A")]
+let ty3 = List (Arr (Varp "A", Varp "B"))
+let generalized_ty3 = generaliser ty3 env3
+let () = print_endline ("Test 3: " ^ print_type generalized_ty3)  (* Attendu: ∀B. [A -> B] *)
+
+(* Test 4 : Généralisation d'un type de fonction avec plusieurs variables libres *)
+let env4 = [("x", Varp "A"); ("y", Varp "B")]
+let ty4 = Arr (Varp "A", Varp "C")
+let generalized_ty4 = generaliser ty4 env4
+let () = print_endline ("Test 4: " ^ print_type generalized_ty4)  (* Attendu: ∀C. A -> C *)
+
+(* Test 5 : Aucune variable libre à généraliser dans un type de fonction *)
+let env5 = [("x", Varp "A")]
+let ty5 = Arr (Varp "A", Varp "A")
+let generalized_ty5 = generaliser ty5 env5
+let () = print_endline ("Test 5: " ^ print_type generalized_ty5)  (* Attendu: A -> A *)
+
+(* Test 6 : Type natif sans variables libres *)
+let env6 = [("x", Varp "A")]
+let ty6 = Nat
+let generalized_ty6 = generaliser ty6 env6
+let () = print_endline ("Test 6: " ^ print_type generalized_ty6)  (* Attendu: Nat *)
+
+(* Test 7 : Fonction avec un type List *)
+let env7 = [("x", Varp "A")]
+let ty7 = List (Arr (Varp "A", Varp "B"))
+let generalized_ty7 = generaliser ty7 env7
+let () = print_endline ("Test 7: " ^ print_type generalized_ty7)  (* Attendu: ∀B. [A -> B] *)
+
+(* Test 8 : Type plus complexe avec des variables à généraliser dans une fonction *)
+let env8 = [("x", Varp "A"); ("y", Varp "B")]
+let ty8 = Arr (Arr (Varp "A", Varp "C"), Varp "D")
+let generalized_ty8 = generaliser ty8 env8
+let () = print_endline ("Test 8: " ^ print_type generalized_ty8)  (* Attendu: ∀C. (A -> C) -> D *)
+
+(* Test 9 : Cas avec une fonction récursive utilisant Fix *)
+let env9 = [("x", Varp "A")]
+let ty9 = Fix ("f", Abs ("x", Varp "A"))
+let generalized_ty9 = generaliser ty9 env9
+let () = print_endline ("Test 9: " ^ print_type generalized_ty9)  (* Attendu: ∀A. fix f (A -> A) *)
+
+(* Test 10 : Cas avec Forall déjà dans le type *)
+let env10 = [("x", Varp "A")]
+let ty10 = Forall ("B", Arr (Varp "B", Varp "A"))
+let generalized_ty10 = generaliser ty10 env10
+let () = print_endline ("Test 10: " ^ print_type generalized_ty10)  (* Attendu: ∀B. (B -> A) *)
+
+(* Test 11 : Type vide (exemple avec EmptyList) *)
+let env11 = [("x", Varp "A")]
+let ty11 = EmptyList
+let generalized_ty11 = generaliser ty11 env11
+let () = print_endline ("Test 11: " ^ print_type generalized_ty11)  (* Attendu: [] *)
