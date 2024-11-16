@@ -18,6 +18,15 @@ let nouvelle_var () : string =
   compteur_var := !compteur_var + 1;
   "X" ^ (string_of_int !compteur_var)
 type ptype = Varp of string | Arr of ptype * ptype | Nat
+
+
+let rec print_type (t : ptype) : string =
+  match t with
+  | Varp x -> x
+  | Arr (t1, t2) -> "(" ^ (print_type t1) ^ " -> " ^ (print_type t2) ^ ")"
+  | Nat -> "Nat"
+
+
 let rec print_term (t : pterm) : string =
   match t with
   | Var x -> x
@@ -40,32 +49,33 @@ type env = (string * ptype) list
 let rec cherche_type (v : string) (e : env) : ptype =
   match e with
   |(s,t)::reste -> if v=s then t else cherche_type v reste 
-  |_ -> Nat
+  |_ -> failwith ("Variable non trouvée : " ^ v)
   let rec genere_equa (te : pterm) (ty : ptype) (e : env) : equa =
     match te with
     | Var v -> 
-        let t_var = cherche_type v e in
-        [(t_var, ty)]  (* Générer l'équation t_var = ty *)
-    
+        (* Recherche du type dans l'environnement *)
+        let t_var = 
+          try cherche_type v e 
+          with _ -> failwith ("Variable non trouvée : " ^ v)
+        in
+        [(t_var, ty)]  
     | Abs (x, t) -> 
-        let ta = Varp (nouvelle_var_t ()) in  (* Type pour l'argument de la fonction *)
-        let tr = Varp (nouvelle_var_t ()) in  (* Type pour le résultat de la fonction *)
-        let e' = (x, ta) :: e in  (* Ajouter le paramètre à l'environnement avec son type *)
-        let equa_body = genere_equa t tr e' in  (* Générer les équations pour le corps de la fonction *)
-        (ty, Arr (ta, tr)) :: equa_body  (* L'abs a le type Arr (ta, tr) *)
-    
+        (* Vérifie si le type de x est déjà dans l'environnement, sinon génère une nouvelle variable *)
+        let ta = 
+          try cherche_type x e 
+          with _ -> Varp (nouvelle_var_t ()) 
+        in
+        let tr = Varp (nouvelle_var_t ()) in  (* Génère un type frais pour le corps *)
+        let e' = (x, ta) :: e in
+        let equa_body = genere_equa t tr e' in
+        (ty, Arr (ta, tr)) :: equa_body
+  
     | App (t1, t2) -> 
-        let ta = Varp (nouvelle_var_t ()) in  (* Type pour l'argument de t1 *)
-        let tr = Varp (nouvelle_var_t ()) in  (* Type pour le résultat de t1 *)
-        
-        (* t1 doit être une fonction, donc son type est Arr (ta, tr) *)
-        let equa_t1 = genere_equa t1 (Arr (ta, tr)) e in  (* Générer les équations pour t1 de type fonction *)
-        
-        (* t2 doit être de type ta, c'est-à-dire le type attendu pour l'argument de la fonction *)
-        let equa_t2 = genere_equa t2 ta e in  (* Générer les équations pour t2, l'argument de la fonction *)
-        
-        (* Combiner les équations générées pour t1 et t2 *)
+        let ta = Varp (nouvelle_var_t ()) in  (* Génère une nouvelle variable pour l'argument *)
+        let equa_t1 = genere_equa t1 (Arr (ta, ty)) e in
+        let equa_t2 = genere_equa t2 ta e in
         equa_t1 @ equa_t2
+
 
 let rec occur_check (s:string) (ty:ptype) : bool  = 
   match ty with
@@ -91,72 +101,95 @@ let rec egalite_type (t1 : ptype) ( t2 :ptype) : bool =
   | Nat,Nat -> true 
   | _,_ -> false
  
-  let rec uni_step (eq : (ptype * ptype) list) : (ptype * ptype) list =
-    match eq with
-    | [] -> []  (* Cas d'arrêt : plus d'équations *)
-    | (t1, t2) :: queue ->
-        if egalite_type t1 t2 then
-          (* Si les types sont égaux, on les supprime de la liste *)
-          uni_step queue
-        else
-          match (t1, t2) with
-          | Varp s, _ ->
-              if occur_check s t2 then
-                failwith "Unification échoue : occur check"
-              else
-                let substituted_eqs = substitution_systeme s t2 queue in
-                (t1, t2) :: uni_step substituted_eqs  (* Applique les substitutions et continue *)
-    
-          | _, Varp s ->
-              if occur_check s t1 then
-                failwith "Unification échoue : occur check"
-              else
-                let substituted_eqs = substitution_systeme s t1 queue in
-                (t1, t2) :: uni_step substituted_eqs  (* Applique les substitutions et continue *)
-    
-          | Arr (t1a, t1b), Arr (t2a, t2b) ->
-              (* Les types sont des flèches, on les décompose en sous-types *)
-              let new_eqs = (t1a, t2a) :: (t1b, t2b) :: queue in
-              uni_step new_eqs
-    
-          | Nat, Nat -> uni_step queue  (* Les types sont égaux (Nat), on les supprime de la liste *)
-    
-          | _ -> failwith "Unification échoue : types incompatibles"
-    
-          let rec resoudre_systeme eq (substitutions_acc : (string * ptype) list) (max_iter : int) : ((ptype * ptype) list * (string * ptype) list) option =
-            if max_iter <= 0 then
-              None  (* Limite de récursion pour éviter les boucles infinies *)
-          
-            else match eq with
-            | [] -> Some ([], substitutions_acc)  (* Si aucune équation, retourner l'état actuel *)
-          
-            | _ ->
-                try
-                  let next_eqs = uni_step eq in
-                  Printf.printf "[DEBUG] Current equations: %s\n" (List.fold_left (fun acc (t1, t2) -> acc ^ print_type t1 ^ " = " ^ print_type t2 ^ ", ") "" next_eqs);
-          
-                  (* Si les équations ne changent pas entre les itérations, on peut arrêter l'unification *)
-                  if next_eqs = eq then
-                    Some (next_eqs, substitutions_acc)
-                  else
-                    let substituted_eqs = List.map (fun (t1, t2) ->
-                      (* Substitution appliquée seulement si t1 et t2 ont évolué *)
-                      (List.fold_left (fun acc (s, t_sub) -> substitution_type s t_sub acc) t1 substitutions_acc,
-                        List.fold_left (fun acc (s, t_sub) -> substitution_type s t_sub acc) t2 substitutions_acc)
-                    ) next_eqs in
-                    resoudre_systeme substituted_eqs substitutions_acc (max_iter - 1)
-                with Failure _ -> None  (* Si l'unification échoue, on retourne None *)
-                        
-let infere_type (terme : pterm) (env : env) : ptype option =
-  (* Générer une nouvelle variable de type pour le terme *)
-  let nouveau_type = Varp "T" in
-  (* Générer les équations *)
-  let equa = genere_equa terme nouveau_type env in
-  (* Essayer de résoudre les équations avec le timeout global *)
-  match resoudre_systeme equa with
-  | Some _ -> Some nouveau_type  (* Si le système est résolu, le terme est typé *)
-  | None -> None  (* Sinon, le terme n'est pas typable *)  
-                 
+let rec appliquer_substitution (equations : (ptype * ptype) list) (t : ptype) : ptype =
+  match equations with
+  | [] -> t  
+  | (Varp v, t') :: rest -> 
+      appliquer_substitution rest (substitution_type v t' t)
+  | _ -> (
+      match t with
+      | Arr (t1, t2) -> 
+          Arr (appliquer_substitution equations t1, appliquer_substitution equations t2)
+      | Varp x -> 
+          (try 
+              let (_, t_sub) = List.find (fun (Varp v, _) -> v = x) equations in
+              t_sub
+            with Not_found -> t)
+      | _ -> t  
+    )
+;;
+
+
+let rec uni_step (eq : equa) (subs : equa) : equa =
+  match eq with
+  | [] -> subs
+  | (t1, t2) :: rest ->
+      let t1' = appliquer_substitution subs t1 in
+      let t2' = appliquer_substitution subs t2 in
+      if egalite_type t1' t2' then
+        uni_step rest subs
+      else
+        match (t1', t2') with
+        | Varp s, _ ->
+            if not (occur_check s t2') then
+              let new_subs = (Varp s, t2') :: subs in
+              let updated_rest = substitution_systeme s t2' rest in
+              uni_step updated_rest new_subs
+            else failwith "Unification échoue : occur check"
+        | _, Varp s ->
+            if not (occur_check s t1') then
+              let new_subs = (Varp s, t1') :: subs in
+              let updated_rest = substitution_systeme s t1' rest in
+              uni_step updated_rest new_subs
+            else failwith "Unification échoue : occur check"
+        | Arr (t1a, t1b), Arr (t2a, t2b) ->
+            uni_step ((t1a, t2a) :: (t1b, t2b) :: rest) subs
+        | Nat, Nat -> uni_step rest subs
+        | _ -> failwith "Unification échoue : types incompatibles"
+
+
+let print_substitutions (equations : equa) =
+  List.iter (fun (t1, t2) -> print_endline (print_type t1 ^ " = " ^ print_type t2)) equations
+
+  let print_equation (e1, e2) =
+  print_endline ("(" ^ print_type e1 ^ " = " ^ print_type e2 ^ ")")
+
+let rec print_equations equations =
+  match equations with
+  | [] -> ()
+  | eq :: rest -> print_equation eq; print_equations rest
+;;
+                
+
+let resoudre_equations equations limit = 
+  try Some (uni_step equations [])  (* Retourne simplement le résultat de uni_step, sans tuple *)
+  with _ -> None
+;;
+
+let trouver_variable_originale (equations : equa) (t : ptype) : ptype =
+  match t with
+  | Varp _ ->
+      (* Rechercher une clé dans les équations dont la valeur est équivalente à `t` *)
+      (try
+          List.find (fun (_, t2) -> t2 = t) equations |> fst
+        with Not_found -> t)
+  | _ -> t
+                
+let infere_type (term : pterm) (env : env) (limit : int) : ptype option =
+  let t = Varp (nouvelle_var_t()) in
+  let equations = genere_equa term t env in
+  print_endline "=== Équations générées ===";
+  print_equations equations;
+  match  resoudre_equations equations limit with
+  | None -> print_endline "Échec de l'unification des équations"; None
+  | Some eqs -> 
+    print_endline "=== Substitutions appliquées ===";
+    print_substitutions eqs; 
+    let final_type = appliquer_substitution eqs t in
+    let resolved_type = appliquer_substitution eqs final_type in
+    let fully_resolved_type = appliquer_substitution eqs resolved_type in
+    let variable_originale = trouver_variable_originale eqs fully_resolved_type in
+    Some variable_originale      
 (* Mise à jour de la fonction `isValeur` pour les nouvelles fonctionnalités *)
 let rec isValeur (t : pterm) : bool = 
   match t with
@@ -273,11 +306,7 @@ let rec ltr_cbv_norm (t : pterm) : pterm =
   match (ltr_ctb_step t) with
   | Some reduc -> ltr_cbv_norm reduc
   | None -> t 
-  
-let rec ltr_cbv_norm (t : pterm) : pterm =
-  match (ltr_ctb_step t) with
-  | Some reduc -> ltr_cbv_norm reduc
-  | None -> t 
+
 (* Tests Arithmétiques *)
 let test_add = Add (Int 2, Int 3)
 let () = 
@@ -340,3 +369,11 @@ let () =
 let test_let_if = Let ("x", Int 0, IfZero (Var "x", Int 42, Int 0))
 let () = 
   print_endline ("let x = 0 in ifzero x then 42 else 0 = " ^ (print_term (ltr_cbv_norm test_let_if)) ^ " (attendu : Int 42)")
+
+  let  () =
+  let env = [("f", Arr(Varp "B1", Varp "B2")); ("x", Varp "B1")] in
+  let term = App(Var "f", Var "x") in
+  match infere_type term env 100 with
+  | Some t -> print_endline ("Type inféré pour App 'f x': " ^ print_type t)
+  | None -> print_endline "Erreur de typage pour App 'f x'"
+;;
