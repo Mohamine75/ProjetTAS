@@ -24,11 +24,12 @@ let nouvelle_var () : string =
   "X" ^ (string_of_int !compteur_var)
 
   type ptype = 
-  | Varp of string  (* Variable de type *)
-  | Arr of ptype * ptype  (* Fonction *)
-  | Nat  (* Type des entiers naturels *)
-  | List of ptype  (* Type des listes *)
-  | Forall of string * ptype  (* Quantificateur universel pour le polymorphisme *)
+  | Varp of string  
+  | Arr of ptype * ptype  
+  | Nat  
+  | List of ptype  
+  | Forall of string * ptype 
+  | R
 
 
 let rec print_term (t : pterm) : string =
@@ -45,6 +46,7 @@ let rec print_term (t : pterm) : string =
   | IfEmpty (t1, t2, t3) -> "(ifempty " ^ (print_term t1) ^ " then " ^ (print_term t2) ^ " else " ^ (print_term t3) ^ ")"
   | Fix (x, t) -> "(fix " ^ x ^ " -> " ^ (print_term t) ^ ")"
   | Let (x, t1, t2) -> "(let " ^ x ^ " = " ^ (print_term t1) ^ " in " ^ (print_term t2) ^ ")"
+  
 let compteur_var_t : int ref = ref 0
 let nouvelle_var_t () : string = compteur_var := !compteur_var + 1;
   "T"^( string_of_int ! compteur_var )
@@ -58,6 +60,7 @@ let rec print_type (t : ptype) : string =
   | Nat -> "Nat"
   | List t -> "[" ^ (print_type t) ^ "]"
   | Forall (x, t) -> "∀" ^ x ^ "." ^ (print_type t)
+  | R -> "R"
 
 
 
@@ -69,99 +72,106 @@ let rec cherche_type (v : string) (e : env) : ptype =
 
 let rec open_forall (x : string) (t : ptype) : ptype =
   match t with
-  | Varp y when y = x -> Varp (nouvelle_var ())  (* Renommer la variable liée *)
-  | Forall (y, t') when y = x -> open_forall y t'  (* Cas récursif pour ouvrir un Forall imbriqué *)
-  | Forall (y, t') -> Forall (y, open_forall x t')  (* Appliquer récursivement à l'intérieur de Forall *)
-  | _ -> t  (* Si ce n'est pas un Forall, on retourne le type inchangé *)
+  | Varp y when y = x -> Varp (nouvelle_var ())  
+  | Forall (y, t') when y = x -> open_forall y t' 
+  | Forall (y, t') -> Forall (y, open_forall x t') 
+  | _ -> t  
   
   
   let rec genere_equa (te : pterm) (ty : ptype) (e : env) : equa =
     match te with
     | Var v -> 
         let t_var = cherche_type v e in
-        [(t_var, ty)]  (* Générer l'équation t_var = ty *)
-  
+        [(t_var, ty)] 
     | Int _ -> 
-        (* Les entiers ont un type Nat *)
-        [(Nat, ty)]  (* Un type entier correspond à Nat *)
-  
+        [(Nat, ty)]  
     | Abs (x, t) -> 
         let ta = 
-          try cherche_type x e  (* Si le type de x est déjà défini dans l'environnement *)
-          with _ -> Varp (nouvelle_var_t ())  (* Sinon, on génère un type frais pour x *)
+          try cherche_type x e 
+          with _ -> Varp (nouvelle_var_t ())  
         in
-        let tr = Varp (nouvelle_var_t ()) in  (* Génère un type frais pour le résultat de l'abs *)
-        let e' = (x, ta) :: e in  (* Ajouter x avec son type dans l'environnement *)
-        let equa_body = genere_equa t tr e' in  (* Générer les équations pour le corps de la fonction *)
-        (ty, Arr (ta, tr)) :: equa_body  (* L'abs a le type Arr (ta, tr) *)
+        let tr = Varp (nouvelle_var_t ()) in  
+        let e' = (x, ta) :: e in  
+        let equa_body = genere_equa t tr e' in  
+        (ty, Arr (ta, tr)) :: equa_body 
   
     | App (t1, t2) -> 
-        let ta = Varp (nouvelle_var_t ()) in  (* Type pour l'argument de t1 *)  
-        let equa_t1 = genere_equa t1 (Arr (ta, ty)) e in  (* Générer les équations pour t1 de type fonction *)
-    
-          (* t2 doit être de type ta, c'est-à-dire le type attendu pour l'argument de la fonction *)
-        let equa_t2 = genere_equa t2 ta e in  (* Générer les équations pour t2, l'argument de la fonction *)
+        let ta = Varp (nouvelle_var_t ()) in  
+        let equa_t1 = genere_equa t1 (Arr (ta, ty)) e in
+            let equa_t2 = genere_equa t2 ta e in  
         equa_t1 @ equa_t2
-  
     | EmptyList -> 
-        (* Liste vide est typée comme [T] *)
-        [(Varp "T", ty)]  (* Liste vide correspond à un type générique T *)
-  
+        [(Varp "T", ty)]  
     | Cons (head, tail) -> 
-        (* Liste avec un élément, on suppose que head a le type T et tail est une liste [T] *)
         let t_head = Varp (nouvelle_var_t ()) in
         let t_tail = Varp (nouvelle_var_t ()) in
         let equa_head = genere_equa head t_head e in
         let equa_tail = genere_equa tail (Arr (t_head, t_tail)) e in
-        equa_head @ equa_tail  (* On applique les équations pour le head et le tail de la liste *)
-  
-    | IfEmpty (t1, t2, t3) -> 
-        (* Condition sur une liste : si t1 est une liste, alors t2 et t3 doivent être du même type *)
-        let t_list = Varp (nouvelle_var_t ()) in
-        let equa_t1 = genere_equa t1 t_list e in
-        let equa_t2 = genere_equa t2 ty e in
-        let equa_t3 = genere_equa t3 ty e in
-        equa_t1 @ equa_t2 @ equa_t3
-  
+        equa_head @ equa_tail  
+       | IfEmpty (cond, t1, t2) ->
+          let ta = Varp (nouvelle_var_t()) in
+          let eq_cond = genere_equa cond (List ta) e in
+          let eq_t1 = genere_equa t1 ty e in
+          let eq_t2 = genere_equa t2 ty e in
+          eq_cond @ eq_t1 @ eq_t2
     | Fix (x, t) -> 
         let ta = Varp (nouvelle_var_t ()) in
         let tr = Varp (nouvelle_var_t ()) in
         let e' = (x, ta) :: e in
         let equa_body = genere_equa t tr e' in
-        [(ty, Arr (ta, tr))] @ equa_body  (* Le terme fix a un type polymorphique (ty = ta -> tr) *)
-  
+        [(ty, Arr (ta, tr))] @ equa_body  
     | Let (x, t1, t2) -> 
         let ta = Varp (nouvelle_var_t ()) in
         let equa_t1 = genere_equa t1 ta e in
         let e' = (x, ta) :: e in
         let equa_t2 = genere_equa t2 ty e' in
         equa_t1 @ equa_t2
-  
+        | Add (t1, t2) ->
+          let equa_t1 = genere_equa t1 Nat e in 
+          let equa_t2 = genere_equa t2 Nat e in 
+          (ty, Nat) :: equa_t1 @ equa_t2 
+      | Sub (t1, t2) ->
+          let equa_t1 = genere_equa t1 Nat e in  
+          let equa_t2 = genere_equa t2 Nat e in  
+          (ty, Nat) :: equa_t1 @ equa_t2  
+      | IfZero (cond, t1, t2) -> 
+          let tc = genere_equa cond R e in
+          let eq_t1 = genere_equa t1 ty e in
+          let eq_t2 = genere_equa t2 ty e in
+          tc @ eq_t1 @ eq_t2
 
-let rec occur_check (s:string) (ty:ptype) : bool  = 
-  match ty with
-  | Arr (t1,t2) -> (occur_check s t1) || (occur_check s t2)
-  | Varp x -> if x=s then true else false
-  | _ -> false
+
+  let rec occur_check (s:string) (ty: ptype) : bool = 
+    match ty with
+    | Arr (t1, t2) -> (occur_check s t1) || (occur_check s t2) 
+    | Varp x -> if x = s then true else false  
+    | Forall (x, t) -> if x = s then false else occur_check s t  
+    | List t -> occur_check s t  
+    | R -> false 
+    | _ -> false 
+        
 
 let rec substitution_type (s : string) (t_sub : ptype) (ty : ptype) : ptype =
   match ty with
-  | Varp x -> if x = s then t_sub else ty  (* Remplace si c'est la variable à substituer *)
-  | Arr (t1, t2) -> Arr (substitution_type s t_sub t1, substitution_type s t_sub t2)  (* Applique récursivement aux sous-types *)
-  | Nat -> Nat  (* Aucun changement pour Nat *) 
+  | Varp x -> if x = s then t_sub else ty 
+  | Arr (t1, t2) -> Arr (substitution_type s t_sub t1, substitution_type s t_sub t2) 
+  | Nat -> Nat  
   
 let rec substitution_systeme (s : string) (t_sub : ptype) (systeme :equa) : equa=
   List.map (fun (t1, t2) -> 
       (substitution_type s t_sub t1, substitution_type s t_sub t2)
     ) systeme
   
-let rec egalite_type (t1 : ptype) ( t2 :ptype) : bool = 
-  match t1,t2 with
-  |Varp s1, Varp s2 -> s1 = s2
-  |(Arr (t11,t12)),(Arr(t21,t22)) -> (egalite_type t11 t21) && (egalite_type t12  t22)
-  | Nat,Nat -> true 
-  | _,_ -> false
- 
+    let rec egalite_type (t1 : ptype) (t2 : ptype) : bool =
+      match t1, t2 with
+      | Varp s1, Varp s2 -> s1 = s2
+      | Arr (t11, t12), Arr (t21, t22) -> egalite_type t11 t21 && egalite_type t12 t22
+      | Nat, Nat -> true
+      | R, R -> true
+      | Forall (x, t1'), Forall (y, t2') -> egalite_type t1' t2'
+      | List t1, List t2 -> egalite_type t1 t2
+      | _, _ -> false
+    
   let rec uni_step (eq : (ptype * ptype) list) (subs : (ptype * ptype) list) : (ptype * ptype) list =
     match eq with
     | [] -> subs  (* Retourne les substitutions accumulées quand il n'y a plus d'équations *)
@@ -220,23 +230,31 @@ let rec appliquer_substitution (equations : (ptype * ptype) list) (t : ptype) : 
   match equations with
   | [] -> t  (* Si aucune équation, on retourne le type inchangé *)
   | (Varp v, t') :: rest -> 
-      (* Si t1 est une variable de type (Varp), on applique la substitution *)
       appliquer_substitution rest (substitution_type v t' t)
   | _ -> (
       match t with
       | Arr (t1, t2) -> 
-          (* Si le type est une fonction, appliquer les substitutions sur les sous-types *)
           Arr (appliquer_substitution equations t1, appliquer_substitution equations t2)
       | Varp x -> 
-          (* Si t est une variable de type, vérifier si une substitution est appliquée *)
           (try 
-             (* Si une substitution existe pour cette variable, l'appliquer *)
              let (_, t_sub) = List.find (fun (Varp v, _) -> v = x) equations in
              t_sub
            with Not_found -> t)  (* Sinon, garder le type inchangé *)
+
+      | List t' -> 
+          (* Si t est une liste, appliquer les substitutions sur le type des éléments *)
+          List (appliquer_substitution equations t')
+
+      | Forall (x, t') -> 
+          (* Si t est un type quantifié (∀x. t'), appliquer les substitutions sur t' 
+             mais ignorer les variables quantifiées *)
+          let t_sub = appliquer_substitution equations t' in
+          Forall (x, t_sub)
+
       | _ -> t  (* Pour tous les autres types (Nat, etc.), pas de substitution nécessaire *)
   )
 ;;
+
 
 let inferer_type (term : pterm) (env : env) (limit : int) : ptype option =
   let t = Varp (nouvelle_var_t()) in
@@ -468,62 +486,93 @@ let ty1 = Arr (Varp "A", Varp "B")
 let generalized_ty1 = generaliser ty1 env1
 let () = print_endline ("Test 1: " ^ print_type generalized_ty1)  (* Attendu: A -> B *)
 
-(* Test 2 : Une variable libre à généraliser *)
-let env2 = [("x", Varp "A")]
-let ty2 = List (Arr (Varp "A", Varp "B"))
-let generalized_ty2 = generaliser ty2 env2
-let () = print_endline ("Test 2: " ^ print_type generalized_ty2)  (* Attendu: ∀B. [A -> B] *)
 
-(* Test 3 : Plusieurs variables libres à généraliser *)
-let env3 = [("x", Varp "A")]
-let ty3 = List (Arr (Varp "A", Varp "B"))
-let generalized_ty3 = generaliser ty3 env3
-let () = print_endline ("Test 3: " ^ print_type generalized_ty3)  (* Attendu: ∀B. [A -> B] *)
+(* Test 1: Simple variable *)
+let test_1 = Var "x"
+let env_1 = [("x", Varp "A")]
+let result_1 = inferer_type test_1 env_1 10
+let () = 
+  match result_1 with
+  | Some t -> print_endline ("Test 1 - Type inféré: " ^ print_type t)
+  | None -> print_endline "Test 1 - Non typable"
 
-(* Test 4 : Généralisation d'un type de fonction avec plusieurs variables libres *)
-let env4 = [("x", Varp "A"); ("y", Varp "B")]
-let ty4 = Arr (Varp "A", Varp "C")
-let generalized_ty4 = generaliser ty4 env4
-let () = print_endline ("Test 4: " ^ print_type generalized_ty4)  (* Attendu: ∀C. A -> C *)
+(* Test 2: Fonction identité *)
+let test_2 = Abs ("x", Var "x")
+let env_2 = []
+let result_2 = inferer_type test_2 env_2 10
+let () = 
+  match result_2 with
+  | Some t -> print_endline ("Test 2 - Type inféré: " ^ print_type t)
+  | None -> print_endline "Test 2 - Non typable"
 
-(* Test 5 : Aucune variable libre à généraliser dans un type de fonction *)
-let env5 = [("x", Varp "A")]
-let ty5 = Arr (Varp "A", Varp "A")
-let generalized_ty5 = generaliser ty5 env5
-let () = print_endline ("Test 5: " ^ print_type generalized_ty5)  (* Attendu: A -> A *)
+(* Test 3: Application de fonction *)
+let test_3 = App (Abs ("x", Var "x"), Var "y")
+let env_3 = [("y", Varp "A")]
+let result_3 = inferer_type test_3 env_3 10
+let () = 
+  match result_3 with
+  | Some t -> print_endline ("Test 3 - Type inféré: " ^ print_type t)
+  | None -> print_endline "Test 3 - Non typable"
 
-(* Test 6 : Type natif sans variables libres *)
-let env6 = [("x", Varp "A")]
-let ty6 = Nat
-let generalized_ty6 = generaliser ty6 env6
-let () = print_endline ("Test 6: " ^ print_type generalized_ty6)  (* Attendu: Nat *)
+(* Test 4: Fonction polymorphe *)
+let test_4 = Abs ("x", Abs ("y", Var "x"))
+let env_4 = []
+let result_4 = inferer_type test_4 env_4 10
+let () = 
+  match result_4 with
+  | Some t -> print_endline ("Test 4 - Type inféré: " ^ print_type t)
+  | None -> print_endline "Test 4 - Non typable"
 
-(* Test 7 : Fonction avec un type List *)
-let env7 = [("x", Varp "A")]
-let ty7 = List (Arr (Varp "A", Varp "B"))
-let generalized_ty7 = generaliser ty7 env7
-let () = print_endline ("Test 7: " ^ print_type generalized_ty7)  (* Attendu: ∀B. [A -> B] *)
+(* Test 5: Application de fonction polymorphe *)
+let test_5 = App (App (Abs ("x", Abs ("y", Var "x")), Var "a"), Var "b")
+let env_5 = [("a", Varp "A"); ("b", Varp "B")]
+let result_5 = inferer_type test_5 env_5 10
+let () = 
+  match result_5 with
+  | Some t -> print_endline ("Test 5 - Type inféré: " ^ print_type t)
+  | None -> print_endline "Test 5 - Non typable"
 
-(* Test 8 : Type plus complexe avec des variables à généraliser dans une fonction *)
-let env8 = [("x", Varp "A"); ("y", Varp "B")]
-let ty8 = Arr (Arr (Varp "A", Varp "C"), Varp "D")
-let generalized_ty8 = generaliser ty8 env8
-let () = print_endline ("Test 8: " ^ print_type generalized_ty8)  (* Attendu: ∀C. (A -> C) -> D *)
+(* Test 6: Arithmétique simple *)
+let test_6 = Add (Int 2, Int 3)
+let env_6 = []
+let result_6 = inferer_type test_6 env_6 10
+let () = 
+  match result_6 with
+  | Some t -> print_endline ("Test 6 - Type inféré: " ^ print_type t)
+  | None -> print_endline "Test 6 - Non typable"
 
-(* Test 9 : Cas avec une fonction récursive utilisant Fix *)
-let env9 = [("x", Varp "A")]
-let ty9 = Fix ("f", Abs ("x", Varp "A"))
-let generalized_ty9 = generaliser ty9 env9
-let () = print_endline ("Test 9: " ^ print_type generalized_ty9)  (* Attendu: ∀A. fix f (A -> A) *)
+(* Test 7: Condition IfZero *)
+let test_7 = IfZero (Int 0, Int 42, Int 0)
+let env_7 = []
+let result_7 = inferer_type test_7 env_7 10
+let () = 
+  match result_7 with
+  | Some t -> print_endline ("Test 7 - Type inféré: " ^ print_type t)
+  | None -> print_endline "Test 7 - Non typable"
 
-(* Test 10 : Cas avec Forall déjà dans le type *)
-let env10 = [("x", Varp "A")]
-let ty10 = Forall ("B", Arr (Varp "B", Varp "A"))
-let generalized_ty10 = generaliser ty10 env10
-let () = print_endline ("Test 10: " ^ print_type generalized_ty10)  (* Attendu: ∀B. (B -> A) *)
+(* Test 8: Liste vide *)
+let test_8 = EmptyList
+let env_8 = []
+let result_8 = inferer_type test_8 env_8 10
+let () = 
+  match result_8 with
+  | Some t -> print_endline ("Test 8 - Type inféré: " ^ print_type t)
+  | None -> print_endline "Test 8 - Non typable"
 
-(* Test 11 : Type vide (exemple avec EmptyList) *)
-let env11 = [("x", Varp "A")]
-let ty11 = EmptyList
-let generalized_ty11 = generaliser ty11 env11
-let () = print_endline ("Test 11: " ^ print_type generalized_ty11)  (* Attendu: [] *)
+(* Test 9: Liste avec un élément *)
+let test_9 = Cons (Int 1, EmptyList)
+let env_9 = []
+let result_9 = inferer_type test_9 env_9 10
+let () = 
+  match result_9 with
+  | Some t -> print_endline ("Test 9 - Type inféré: " ^ print_type t)
+  | None -> print_endline "Test 9 - Non typable"
+
+(* Test 10: Let-in *)
+let test_10 = Let ("x", Int 3, Add (Var "x", Int 4))
+let env_10 = []
+let result_10 = inferer_type test_10 env_10 10
+let () = 
+  match result_10 with
+  | Some t -> print_endline ("Test 10 - Type inféré: " ^ print_type t)
+  | None -> print_endline "Test 10 - Non typable"
