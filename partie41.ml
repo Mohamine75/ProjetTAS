@@ -2,18 +2,20 @@ exception Timeout_exception
 let global_timeout = 1.0  
 let compteur_var : int ref = ref 0
 type pterm =
-    | Var of string
-    | App of pterm * pterm
-    | Abs of string * pterm
-    | Int of int  (* Pour les entiers *)
-    | Add of pterm * pterm  (* Addition *)
-    | Sub of pterm * pterm  (* Soustraction *)
-    | IfZero of pterm * pterm * pterm  (* If zero then else *)
-    | EmptyList  (* Représente une liste vide *)
-    | Cons of pterm * pterm  (* Construit une liste *)
-    | IfEmpty of pterm * pterm * pterm  (* If empty then else *)
-    | Fix of string * pterm  (* Point fixe *)
-    | Let of string * pterm * pterm  (* Let-in *)
+  | Var of string
+  | App of pterm * pterm
+  | Abs of string * pterm
+  | Int of int
+  | Add of pterm * pterm
+  | Sub of pterm * pterm
+  | IfZero of pterm * pterm * pterm
+  | EmptyList
+  | Cons of pterm * pterm
+  | IfEmpty of pterm * pterm * pterm
+  | Fix of string * pterm
+  | Let of string * pterm * pterm
+  | Head of pterm   (* Nouvelle opération Head *)
+  | Tail of pterm   (* Nouvelle opération Tail *)
 let nouvelle_var () : string = 
   compteur_var := !compteur_var + 1;
   "X" ^ (string_of_int !compteur_var)
@@ -27,20 +29,23 @@ let rec print_type (t : ptype) : string =
   | Nat -> "Nat"
 
 
-let rec print_term (t : pterm) : string =
-  match t with
-  | Var x -> x
-  | App (t1, t2) -> "(" ^ (print_term t1) ^ " " ^ (print_term t2) ^ ")"
-  | Abs (x, t) -> "(fun " ^ x ^ " -> " ^ (print_term t) ^ ")"
-  | Int n -> string_of_int n
-  | Add (t1, t2) -> "(" ^ (print_term t1) ^ " + " ^ (print_term t2) ^ ")"
-  | Sub (t1, t2) -> "(" ^ (print_term t1) ^ " - " ^ (print_term t2) ^ ")"
-  | IfZero (t1, t2, t3) -> "(ifzero " ^ (print_term t1) ^ " then " ^ (print_term t2) ^ " else " ^ (print_term t3) ^ ")"
-  | EmptyList -> "[]"
-  | Cons (head, tail) -> "(cons " ^ (print_term head) ^ " " ^ (print_term tail) ^ ")"
-  | IfEmpty (t1, t2, t3) -> "(ifempty " ^ (print_term t1) ^ " then " ^ (print_term t2) ^ " else " ^ (print_term t3) ^ ")"
-  | Fix (x, t) -> "(fix " ^ x ^ " -> " ^ (print_term t) ^ ")"
-  | Let (x, t1, t2) -> "(let " ^ x ^ " = " ^ (print_term t1) ^ " in " ^ (print_term t2) ^ ")"
+  let rec print_term (t : pterm) : string =
+    match t with
+    | Var x -> x
+    | App (t1, t2) -> "(" ^ (print_term t1) ^ " " ^ (print_term t2) ^ ")"
+    | Abs (x, t) -> "(fun " ^ x ^ " -> " ^ (print_term t) ^ ")"
+    | Int n -> string_of_int n
+    | Add (t1, t2) -> "(" ^ (print_term t1) ^ " + " ^ (print_term t2) ^ ")"
+    | Sub (t1, t2) -> "(" ^ (print_term t1) ^ " - " ^ (print_term t2) ^ ")"
+    | IfZero (t1, t2, t3) -> "(ifzero " ^ (print_term t1) ^ " then " ^ (print_term t2) ^ " else " ^ (print_term t3) ^ ")"
+    | EmptyList -> "[]"
+    | Cons (head, tail) -> "(cons " ^ (print_term head) ^ " " ^ (print_term tail) ^ ")"
+    | IfEmpty (t1, t2, t3) -> "(ifempty " ^ (print_term t1) ^ " then " ^ (print_term t2) ^ " else " ^ (print_term t3) ^ ")"
+    | Fix (x, t) -> "(fix " ^ x ^ " -> " ^ (print_term t) ^ ")"
+    | Let (x, t1, t2) -> "(let " ^ x ^ " = " ^ (print_term t1) ^ " in " ^ (print_term t2) ^ ")"
+    | Head t1 -> "(head " ^ (print_term t1) ^ ")"  (* Ajout pour Head *)
+    | Tail t1 -> "(tail " ^ (print_term t1) ^ ")"  (* Ajout pour Tail *)
+  
 let compteur_var_t : int ref = ref 0
 let nouvelle_var_t () : string = compteur_var := !compteur_var + 1;
   "T"^( string_of_int ! compteur_var )
@@ -197,8 +202,10 @@ let rec isValeur (t : pterm) : bool =
   | Abs (_, _) -> true
   | Int _ -> true  (* Les entiers sont des valeurs *)
   | EmptyList -> true  (* Liste vide est une valeur *)
-  | Cons (head, tail) -> isValeur head && isValeur tail  (* Liste construite est valeur si ses éléments sont des valeurs *)
-  | _ -> false  (* Autres cas ne sont pas considérés comme valeurs *)
+  | Cons (head, tail) -> isValeur head && isValeur tail  (* Liste construite est une valeur si ses éléments sont des valeurs *)
+  | Head t1 | Tail t1 -> isValeur t1  (* Head et Tail sont des valeurs si l'argument est une valeur *)
+  | _ -> false  (* Autres cas ne sont pas considérés comme des valeurs *)
+
 let rec substitution (x : string) (v : pterm) (t : pterm) : pterm =
   match t with
   | Var y -> if y = x then v else t
@@ -268,6 +275,16 @@ let rec ltr_ctb_step (t : pterm) : pterm option =
   | IfEmpty (cond, then_br, else_br) ->
       (match ltr_ctb_step cond with
        | Some cond' -> Some (IfEmpty (cond', then_br, else_br))
+       | None -> None)
+  | Head (Cons (head, _)) -> Some head  (* Réduction pour Head *)
+  | Head t1 -> 
+      (match ltr_ctb_step t1 with
+       | Some t1' -> Some (Head t1')
+       | None -> failwith ("Liste vide:"))
+  | Tail (Cons (_, tail)) -> Some tail  (* Réduction pour Tail *)
+  | Tail t1 ->
+      (match ltr_ctb_step t1 with
+       | Some t1' -> Some (Tail t1')
        | None -> None)
   | Let (x, t1, t2) ->
       (match ltr_ctb_step t1 with
@@ -377,3 +394,21 @@ let () =
   | Some t -> print_endline ("Type inféré pour App 'f x': " ^ print_type t)
   | None -> print_endline "Erreur de typage pour App 'f x'"
 ;;
+
+
+(* Tests pour Head et Tail *)
+let test_head = Head (Cons (Int 1, Cons (Int 2, EmptyList)))
+let () = 
+  print_endline ("Head [1; 2] = " ^ (print_term (ltr_cbv_norm test_head)) ^ " (attendu : Int 1)")
+
+let test_tail = Tail (Cons (Int 1, Cons (Int 2, EmptyList)))
+let () = 
+  print_endline ("Tail [1; 2] = " ^ (print_term (ltr_cbv_norm test_tail)) ^ " (attendu : Cons (Int 2, EmptyList))")
+
+let test_head_empty = Head EmptyList
+let () = 
+  print_endline ("Head [] = " ^ (print_term (ltr_cbv_norm test_head_empty)) ^ " (attendu : erreur)")
+
+let test_tail_empty = Tail EmptyList
+let () = 
+  print_endline ("Tail [] = " ^ (print_term (ltr_cbv_norm test_tail_empty)) ^ " (attendu : erreur)")
