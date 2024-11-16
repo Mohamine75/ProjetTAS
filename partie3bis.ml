@@ -183,6 +183,4 @@ let rec resoudre_systeme eq (substitutions_acc : (string * ptype) list) (max_ite
           match resoudre_systeme equa3 [] 10 with
           | Some (equa, _) -> List.iter (fun (t1, t2) -> Printf.printf "%s = %s\n" (print_type t1) (print_type t2)) equa
           | None -> Printf.printf "Non typable\n"
-          let t4 = Abs ("x", Abs ("y", Var "x"))
-          let env4 = []
-          let result4 = inferer_type t4 env4 10Test 4 - Type inféré: (T1 -> (T2 -> T1))
+        

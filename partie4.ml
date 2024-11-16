@@ -22,6 +22,7 @@ let nouvelle_var_t () : string =
 let nouvelle_var () : string = 
   compteur_var := !compteur_var + 1;
   "X" ^ (string_of_int !compteur_var)
+
   type ptype = 
   | Varp of string  (* Variable de type *)
   | Arr of ptype * ptype  (* Fonction *)
@@ -66,31 +67,76 @@ let rec cherche_type (v : string) (e : env) : ptype =
   | (s, t) :: reste -> if v = s then t else cherche_type v reste
   | _ -> failwith ("Variable non trouvée : " ^ v)
 
+let rec open_forall (x : string) (t : ptype) : ptype =
+  match t with
+  | Varp y when y = x -> Varp (nouvelle_var ())  (* Renommer la variable liée *)
+  | Forall (y, t') when y = x -> open_forall y t'  (* Cas récursif pour ouvrir un Forall imbriqué *)
+  | Forall (y, t') -> Forall (y, open_forall x t')  (* Appliquer récursivement à l'intérieur de Forall *)
+  | _ -> t  (* Si ce n'est pas un Forall, on retourne le type inchangé *)
   
   
-let rec genere_equa (te : pterm) (ty : ptype) (e : env) : equa =
-  match te with
-  | Var v -> 
-      let t_var = cherche_type v e in
-      [(t_var, ty)]  (* Générer l'équation t_var = ty *)
+  let rec genere_equa (te : pterm) (ty : ptype) (e : env) : equa =
+    match te with
+    | Var v -> 
+        let t_var = cherche_type v e in
+        [(t_var, ty)]  (* Générer l'équation t_var = ty *)
   
-  | Abs (x, t) -> 
-      let ta = 
-        try cherche_type x e  (* Si le type de x est déjà défini dans l'environnement *)
-        with _ -> Varp (nouvelle_var_t ())  (* Sinon, on génère un type frais pour x *)
-      in
-      let tr = Varp (nouvelle_var_t ()) in  (* Génère un type frais pour le résultat de l'abs *)
-      let e' = (x, ta) :: e in  (* Ajouter x avec son type dans l'environnement *)
-      let equa_body = genere_equa t tr e' in  (* Générer les équations pour le corps de la fonction *)
-      (ty, Arr (ta, tr)) :: equa_body  (* L'abs a le type Arr (ta, tr) *)
+    | Int _ -> 
+        (* Les entiers ont un type Nat *)
+        [(Nat, ty)]  (* Un type entier correspond à Nat *)
   
-  | App (t1, t2) -> 
-      let ta = Varp (nouvelle_var_t ()) in  (* Type pour l'argument de t1 *)  
-      let equa_t1 = genere_equa t1 (Arr (ta, ty)) e in  (* Générer les équations pour t1 de type fonction *)
+    | Abs (x, t) -> 
+        let ta = 
+          try cherche_type x e  (* Si le type de x est déjà défini dans l'environnement *)
+          with _ -> Varp (nouvelle_var_t ())  (* Sinon, on génère un type frais pour x *)
+        in
+        let tr = Varp (nouvelle_var_t ()) in  (* Génère un type frais pour le résultat de l'abs *)
+        let e' = (x, ta) :: e in  (* Ajouter x avec son type dans l'environnement *)
+        let equa_body = genere_equa t tr e' in  (* Générer les équations pour le corps de la fonction *)
+        (ty, Arr (ta, tr)) :: equa_body  (* L'abs a le type Arr (ta, tr) *)
   
-        (* t2 doit être de type ta, c'est-à-dire le type attendu pour l'argument de la fonction *)
-      let equa_t2 = genere_equa t2 ta e in  (* Générer les équations pour t2, l'argument de la fonction *)
-      equa_t1 @ equa_t2
+    | App (t1, t2) -> 
+        let ta = Varp (nouvelle_var_t ()) in  (* Type pour l'argument de t1 *)  
+        let equa_t1 = genere_equa t1 (Arr (ta, ty)) e in  (* Générer les équations pour t1 de type fonction *)
+    
+          (* t2 doit être de type ta, c'est-à-dire le type attendu pour l'argument de la fonction *)
+        let equa_t2 = genere_equa t2 ta e in  (* Générer les équations pour t2, l'argument de la fonction *)
+        equa_t1 @ equa_t2
+  
+    | EmptyList -> 
+        (* Liste vide est typée comme [T] *)
+        [(Varp "T", ty)]  (* Liste vide correspond à un type générique T *)
+  
+    | Cons (head, tail) -> 
+        (* Liste avec un élément, on suppose que head a le type T et tail est une liste [T] *)
+        let t_head = Varp (nouvelle_var_t ()) in
+        let t_tail = Varp (nouvelle_var_t ()) in
+        let equa_head = genere_equa head t_head e in
+        let equa_tail = genere_equa tail (Arr (t_head, t_tail)) e in
+        equa_head @ equa_tail  (* On applique les équations pour le head et le tail de la liste *)
+  
+    | IfEmpty (t1, t2, t3) -> 
+        (* Condition sur une liste : si t1 est une liste, alors t2 et t3 doivent être du même type *)
+        let t_list = Varp (nouvelle_var_t ()) in
+        let equa_t1 = genere_equa t1 t_list e in
+        let equa_t2 = genere_equa t2 ty e in
+        let equa_t3 = genere_equa t3 ty e in
+        equa_t1 @ equa_t2 @ equa_t3
+  
+    | Fix (x, t) -> 
+        let ta = Varp (nouvelle_var_t ()) in
+        let tr = Varp (nouvelle_var_t ()) in
+        let e' = (x, ta) :: e in
+        let equa_body = genere_equa t tr e' in
+        [(ty, Arr (ta, tr))] @ equa_body  (* Le terme fix a un type polymorphique (ty = ta -> tr) *)
+  
+    | Let (x, t1, t2) -> 
+        let ta = Varp (nouvelle_var_t ()) in
+        let equa_t1 = genere_equa t1 ta e in
+        let e' = (x, ta) :: e in
+        let equa_t2 = genere_equa t2 ty e' in
+        equa_t1 @ equa_t2
+  
 
 let rec occur_check (s:string) (ty:ptype) : bool  = 
   match ty with
@@ -116,39 +162,55 @@ let rec egalite_type (t1 : ptype) ( t2 :ptype) : bool =
   | Nat,Nat -> true 
   | _,_ -> false
  
-let rec uni_step (eq : (ptype * ptype) list) (subs : (ptype * ptype) list) : (ptype * ptype) list =
-  match eq with
-  | [] -> subs  (* Retourne les substitutions accumulées quand il n'y a plus d'équations *)
-
-  | (t1, t2) :: rest -> 
-      if egalite_type t1 t2 then
-        uni_step rest subs  (* Si les types sont égaux, on passe à l'équation suivante *)
-      else
-        match (t1, t2) with
-        | Varp s, _ ->  (* Si t1 est une variable de type *)
-            if not (occur_check s t2) then  (* Vérifie si on n'a pas de conflit dans l'occurence *)
-              let new_subs = (Varp s, t2) :: subs in  (* Ajoute la substitution de la variable *)
-              let updated_rest = substitution_systeme s t2 rest in  (* Applique la substitution aux autres équations *)
-              uni_step updated_rest new_subs  (* Continue avec les nouvelles équations et substitutions *)
-            else 
-              failwith "Unification échoue : occur check"
-
-        | _, Varp s ->  (* Si t2 est une variable de type *)
-            if not (occur_check s t1) then  (* Vérifie si on n'a pas de conflit dans l'occurence *)
-              let new_subs = (Varp s, t1) :: subs in  (* Ajoute la substitution de la variable *)
-              let updated_rest = substitution_systeme s t1 rest in  (* Applique la substitution aux autres équations *)
-              uni_step updated_rest new_subs  (* Continue avec les nouvelles équations et substitutions *)
-            else 
-              failwith "Unification échoue : occur check"
-
-        | Arr (t1a, t1b), Arr (t2a, t2b) ->  (* Si ce sont des flèches (fonctions) *)
-            let new_eqs = (t1a, t2a) :: (t1b, t2b) :: rest in  (* Décompose les équations en sous-types *)
-            uni_step new_eqs subs  (* Continue avec les nouvelles équations et substitutions *)
-
-        | Nat, Nat -> uni_step rest subs  (* Les types Nat sont déjà égaux, on les ignore *)
-
-        | _ -> failwith "Unification échoue : types incompatibles"
-
+  let rec uni_step (eq : (ptype * ptype) list) (subs : (ptype * ptype) list) : (ptype * ptype) list =
+    match eq with
+    | [] -> subs  (* Retourne les substitutions accumulées quand il n'y a plus d'équations *)
+  
+    | (t1, t2) :: rest -> 
+        if egalite_type t1 t2 then
+          uni_step rest subs  (* Si les types sont égaux, on passe à l'équation suivante *)
+        else
+          match (t1, t2) with
+          | Varp s, _ ->  (* Si t1 est une variable de type *)
+              if not (occur_check s t2) then  (* Vérifie si on n'a pas de conflit dans l'occurence *)
+                let new_subs = (Varp s, t2) :: subs in  (* Ajoute la substitution de la variable *)
+                let updated_rest = substitution_systeme s t2 rest in  (* Applique la substitution aux autres équations *)
+                uni_step updated_rest new_subs  (* Continue avec les nouvelles équations et substitutions *)
+              else 
+                failwith "Unification échoue : occur check"
+  
+          | _, Varp s ->  (* Si t2 est une variable de type *)
+              if not (occur_check s t1) then  (* Vérifie si on n'a pas de conflit dans l'occurence *)
+                let new_subs = (Varp s, t1) :: subs in  (* Ajoute la substitution de la variable *)
+                let updated_rest = substitution_systeme s t1 rest in  (* Applique la substitution aux autres équations *)
+                uni_step updated_rest new_subs  (* Continue avec les nouvelles équations et substitutions *)
+              else 
+                failwith "Unification échoue : occur check"
+  
+          | Arr (t1a, t1b), Arr (t2a, t2b) ->  (* Si ce sont des flèches (fonctions) *)
+              let new_eqs = (t1a, t2a) :: (t1b, t2b) :: rest in  (* Décompose les équations en sous-types *)
+              uni_step new_eqs subs  (* Continue avec les nouvelles équations et substitutions *)
+  
+          | Nat, Nat -> uni_step rest subs  (* Les types Nat sont déjà égaux, on les ignore *)
+  
+          | List t1, List t2 ->  (* Si ce sont des listes *)
+              let new_eq = (t1, t2) :: rest in  (* On unifie les types des éléments des listes *)
+              uni_step new_eq subs  (* Continue avec l'unification des éléments de liste *)
+  
+          | Forall (x, t1'), _ ->  (* Si t1 est un type universel (∀x. t1) *)
+              (* Appliquer la "barendregtisation" : ouvrir ∀x et renommer x si nécessaire *)
+              let t1_open = open_forall x t1' in
+              let new_eq = (t1_open, t2) :: rest in
+              uni_step new_eq subs
+  
+          | _, Forall (x, t2') ->  (* Si t2 est un type universel (∀x. t2) *)
+              (* Appliquer la "barendregtisation" : ouvrir ∀x et renommer x si nécessaire *)
+              let t2_open = open_forall x t2' in
+              let new_eq = (t1, t2_open) :: rest in
+              uni_step new_eq subs
+  
+          | _ -> failwith "Unification échoue : types incompatibles"
+  
 let resoudre_equations equations limit = 
   try Some (uni_step equations [])  (* Retourne simplement le résultat de uni_step, sans tuple *)
   with _ -> None
@@ -298,6 +360,7 @@ let rec alphaconv (t : pterm) : pterm =
   | Fix (x, t) -> 
       let x' = nouvelle_var () in
       Fix (x', substitution x (Var x') (alphaconv t))
+
 let rec ltr_cbv_norm (t : pterm) : pterm =
   match (ltr_ctb_step t) with
   | Some reduc -> ltr_cbv_norm reduc
@@ -369,3 +432,49 @@ let () =
 let test_let_if = Let ("x", Int 0, IfZero (Var "x", Int 42, Int 0))
 let () = 
   print_endline ("let x = 0 in ifzero x then 42 else 0 = " ^ (print_term (ltr_cbv_norm test_let_if)) ^ " (attendu : Int 42)")
+
+
+let test_nat = Nat
+let test_list = List (Varp "T")
+let test_forall = Forall ("X", Arr (Varp "X", Nat))
+
+(* Test du pretty-printer *)
+let () = 
+  print_endline ("Type Nat : " ^ print_type test_nat);  (* Devrait afficher : Nat *)
+  print_endline ("Type List (T) : " ^ print_type test_list);  (* Devrait afficher : [T] *)
+  print_endline ("Type Forall (X, X -> Nat) : " ^ print_type test_forall)  (* Devrait afficher : ∀X.(X -> Nat) *)
+
+  let rec free_vars (t : ptype) : string list =
+  match t with
+  | Varp x -> [x]  (* Si c'est une variable, elle est libre *)
+  | Arr (t1, t2) -> List.append (free_vars t1) (free_vars t2)  (* On concatène les variables libres des deux sous-types *)
+  | Nat -> []  (* Les types Nat n'ont pas de variables libres *)
+  | List t -> free_vars t  (* Les listes ont des variables libres dans leur type interne *)
+  | Forall (x, t) -> List.filter (fun v -> v <> x) (free_vars t)  (* Ignore la variable quantifiée *)
+
+
+  let generaliser (t: ptype) (env: env) : ptype =
+    let env_vars = List.map fst env in  (* Liste des variables dans l'environnement *)
+    let free_vars_in_t = List.filter (fun v -> not (List.mem v env_vars)) (free_vars t) in  (* Variables libres mais pas dans l'environnement *)
+    match free_vars_in_t with
+    | [] -> t  (* S'il n'y a pas de variables libres à généraliser, on retourne le type inchangé *)
+    | vars -> List.fold_left (fun acc v -> Forall (v, acc)) t vars  (* On ajoute un quantificateur ∀ pour chaque variable libre *)
+  
+
+    let env1 = [("x", Varp "A")]
+    let ty1 = Arr (Varp "A", Varp "B")
+    let gen_ty1 = generaliser ty1 env1
+    
+  (* On devrait obtenir le type ∀B. (A -> B) *)
+  let () = print_endline (print_type gen_ty1)
+  
+  let env2 = [("x", Varp "A")]  (* L'environnement contient la variable x de type A *)
+  let ty2 = List (Arr (Varp "A", Varp "B"))  (* Type d'une liste de fonction A -> B *)
+  
+  let gen_ty2 = generaliser ty2 env2
+  (* On devrait obtenir le type ∀B. [A -> B] *)
+  let () = print_endline (print_type gen_ty2)
+  let eq1 = [(Varp "X", Varp "X")]
+let subs1 = []
+let result1 = uni_step eq1 subs1
+(* Résultat attendu : [("X", "X")] car les types sont déjà égaux, donc aucune substitution nécessaire *)
