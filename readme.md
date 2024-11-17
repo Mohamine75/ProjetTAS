@@ -12,7 +12,7 @@ Pour la 4.2, ayant eu du mal pour la partie 3, cela parait sensé que le mal rev
 J'ai quand même décidé de faire la 5.1, je n'ai pas réussi à faire fonctionner ce que j'ai implémenté, notamment pour Ref qui a une boucle infini lors de son évaluation.
 
 
-Je n'avais pas fait APS l'année dernière, je suis assez content tout de même de ce que j'ai pu produire. Pour la réalisation de ce projet j'ai eu l'aide de Yacine Kessal (notamment pour l'inférence), chatgpt m'a fait du debuggage mais il ne comprenait pas vraiment le probleme, par exemple quand je lui demande pourquoi une fonction ne marche pas il prend en compte le code et non le cahier des charges, il m'a généré des tests et m'a fait les printer. ChatGPT m'a aussi fait la gestion de timeout.
+Je n'avais pas fait APS l'année dernière, je suis assez content tout de même de ce que j'ai pu produire. Pour la réalisation de ce projet j'ai eu l'aide de Yacine Kessal (notamment pour l'inférence, j'ai du coup pris la fonction variable_originelle dans inferer_type), chatgpt m'a fait du debuggage mais il ne comprenait pas vraiment le probleme, par exemple quand je lui demande pourquoi une fonction ne marche pas il prend en compte le code et non le cahier des charges, il m'a généré des tests et m'a fait les printer. ChatGPT m'a aussi fait la gestion de timeout.
 
 Mohamed ZEMALI
 21306050   
