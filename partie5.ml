@@ -2,27 +2,36 @@ exception Timeout_exception
 let global_timeout = 1.0  
 let compteur_var : int ref = ref 0
 type pterm =
-    | Var of string
-    | App of pterm * pterm
-    | Abs of string * pterm
-    | Int of int  (* Pour les entiers *)
-    | Add of pterm * pterm  (* Addition *)
-    | Sub of pterm * pterm  (* Soustraction *)
-    | IfZero of pterm * pterm * pterm  (* If zero then else *)
-    | EmptyList  (* Représente une liste vide *)
-    | Cons of pterm * pterm  (* Construit une liste *)
-    | IfEmpty of pterm * pterm * pterm  (* If empty then else *)
-    | Fix of string * pterm  (* Point fixe *)
-    | Let of string * pterm * pterm  (* Let-in *)
+  | Var of string
+  | App of pterm * pterm
+  | Abs of string * pterm
+  | Int of int
+  | Add of pterm * pterm
+  | Sub of pterm * pterm
+  | IfZero of pterm * pterm * pterm
+  | EmptyList
+  | Cons of pterm * pterm
+  | IfEmpty of pterm * pterm * pterm
+  | Fix of string * pterm
+  | Let of string * pterm * pterm
+  | Head of pterm
+  | Tail of pterm
+  | Unit  
+  | Ref of pterm  
+  | Deref of pterm  
+  | Assign of pterm * pterm  
+
+
+  
 let nouvelle_var () : string = 
   compteur_var := !compteur_var + 1;
   "X" ^ (string_of_int !compteur_var)
 type ptype =
-| Varp of string           (* Variable de type *)
-| Arr of ptype * ptype     (* Type flèche (fonction) *)
-| Nat                      (* Type des entiers naturels `N` *)
-| List of ptype            (* Type des listes `[T]` *)
-| Forall of string * ptype (* Type universel `∀X.T` pour le polymorphisme *)
+| Varp of string           
+| Arr of ptype * ptype     
+| Nat                      
+| List of ptype            
+| Forall of string * ptype 
 
 
 let rec print_type (t : ptype) : string =
@@ -49,7 +58,15 @@ let rec print_term (t : pterm) : string =
   | IfEmpty (t1, t2, t3) -> "(ifempty " ^ (print_term t1) ^ " then " ^ (print_term t2) ^ " else " ^ (print_term t3) ^ ")"
   | Fix (x, t) -> "(fix " ^ x ^ " -> " ^ (print_term t) ^ ")"
   | Let (x, t1, t2) -> "(let " ^ x ^ " = " ^ (print_term t1) ^ " in " ^ (print_term t2) ^ ")"
-let compteur_var_t : int ref = ref 0
+  | Head t1 -> "(head " ^ (print_term t1) ^ ")"
+  | Tail t1 -> "(tail " ^ (print_term t1) ^ ")"
+  | Unit -> "unit" 
+  | Ref t1 -> "(ref " ^ (print_term t1) ^ ")" 
+  | Deref t1 -> "(!" ^ (print_term t1) ^ ")"  
+  | Assign (t1, t2) -> "(" ^ (print_term t1) ^ " := " ^ (print_term t2) ^ ")" 
+
+
+  let compteur_var_t : int ref = ref 0
 let nouvelle_var_t () : string = compteur_var := !compteur_var + 1;
   "T"^( string_of_int ! compteur_var )
 type equa = (ptype * ptype) list
@@ -64,13 +81,13 @@ let rec variables_type_libres (t : ptype) : string list =
   | List t1 -> variables_type_libres t1
   | Forall (x, t1) -> List.filter (fun y -> y <> x) (variables_type_libres t1)
 
-(* Récupère toutes les variables de type libres dans l'environnement *)
+
 let rec variables_type_env (env : env) : string list =
   match env with
   | [] -> []
   | (_, t) :: rest -> (variables_type_libres t) @ (variables_type_env rest)
 
-(* Fonction de généralisation d'un type *)
+
 let generaliser_type (t : ptype) (env : env) : ptype =
   let var_libres_t = variables_type_libres t in
   let var_libres_env = variables_type_env env in
@@ -81,14 +98,15 @@ let rec cherche_type (v : string) (e : env) : ptype =
   match e with
   |(s,t)::reste -> if v=s then t else cherche_type v reste 
   |_ -> failwith ("Variable non trouvée : " ^ v)
-  let rec genere_equa (te : pterm) (ty : ptype) (e : env) : equa =
-    match te with
-    | Var v -> 
-        let t_var = 
-          try cherche_type v e 
-          with _ -> failwith ("Variable non trouvée : " ^ v)
-        in
-        [(t_var, ty)]
+
+let rec genere_equa (te : pterm) (ty : ptype) (e : env) : equa =
+  match te with
+  | Var v -> 
+      let t_var = 
+        try cherche_type v e 
+        with _ -> failwith ("Variable non trouvée : " ^ v)
+      in
+      [(t_var, ty)]
   
     | Abs (x, t) -> 
         let ta = 
@@ -141,6 +159,16 @@ let rec cherche_type (v : string) (e : env) : ptype =
         let e' = (x, t0_gen) :: e in
         let equa_e2 = genere_equa e2 ty e' in 
         equa_e1 @ equa_e2
+    | Head t ->
+      let ta = Varp (nouvelle_var_t ()) in
+      let equa_t = genere_equa t (List ta) e in
+      [(ty, ta)] @ equa_t  (* Le type de Head t doit être égal au type des éléments de la liste *)
+
+    | Tail t ->
+        let ta = Varp (nouvelle_var_t ()) in
+        let equa_t = genere_equa t (List ta) e in
+        [(ty, List ta)] @ equa_t  (* Le type de Tail t doit être une liste des mêmes éléments *)
+  
   
 let rec occur_check (s:string) (ty:ptype) : bool  = 
   match ty with
@@ -181,7 +209,6 @@ let rec egalite_type (t1 : ptype) (t2 : ptype) : bool =
       
  
   let appliquer_substitution (equations : (ptype * ptype) list) (t : ptype) : ptype =
-    (* Fonction auxiliaire pour appliquer une seule substitution sur un type *)
     let rec appliquer_une_substitution (s : string) (t_sub : ptype) (ty : ptype) : ptype =
       match ty with
       | Varp x -> if x = s then t_sub else ty
@@ -193,12 +220,10 @@ let rec egalite_type (t1 : ptype) (t2 : ptype) : bool =
       | Nat -> Nat
     in
   
-    (* Appliquer toutes les substitutions en une passe *)
     let rec appliquer_toutes_substitutions ty =
       List.fold_left (fun acc (Varp v, t_sub) -> appliquer_une_substitution v t_sub acc) ty equations
     in
   
-    (* Effectuer une passe de substitution jusqu'à stabilisation *)
     let rec fixer_point ty =
       let ty' = appliquer_toutes_substitutions ty in
       if egalite_type ty ty' then ty'
@@ -252,14 +277,13 @@ let rec print_equations equations =
                 
 
 let resoudre_equations equations limit = 
-  try Some (uni_step equations [])  (* Retourne simplement le résultat de uni_step, sans tuple *)
+  try Some (uni_step equations []) 
   with _ -> None
 ;;
 
 let trouver_variable_originale (equations : equa) (t : ptype) : ptype =
   match t with
   | Varp _ ->
-      (* Rechercher une clé dans les équations dont la valeur est équivalente à `t` *)
       (try
           List.find (fun (_, t2) -> t2 = t) equations |> fst
         with Not_found -> t)
@@ -279,16 +303,18 @@ let infere_type (term : pterm) (env : env) (limit : int) : ptype option =
     let resolved_type = appliquer_substitution eqs final_type in
     let fully_resolved_type = appliquer_substitution eqs resolved_type in
     let variable_originale = trouver_variable_originale eqs fully_resolved_type in
-    Some variable_originale      
-(* Mise à jour de la fonction `isValeur` pour les nouvelles fonctionnalités *)
+    Some variable_originale 
+
+
 let rec isValeur (t : pterm) : bool = 
   match t with
   | Var _ -> true
   | Abs (_, _) -> true
-  | Int _ -> true  (* Les entiers sont des valeurs *)
-  | EmptyList -> true  (* Liste vide est une valeur *)
-  | Cons (head, tail) -> isValeur head && isValeur tail  (* Liste construite est valeur si ses éléments sont des valeurs *)
-  | _ -> false  (* Autres cas ne sont pas considérés comme valeurs *)
+  | Int _ -> true 
+  | EmptyList -> true 
+  | Cons (head, tail) -> isValeur head && isValeur tail 
+  | _ -> false 
+
 let rec substitution (x : string) (v : pterm) (t : pterm) : pterm =
   match t with
   | Var y -> if y = x then v else t
@@ -296,9 +322,9 @@ let rec substitution (x : string) (v : pterm) (t : pterm) : pterm =
   | Abs (y, t1) ->
       if y = x then t 
       else Abs (y, substitution x v t1)
-  | Int _ | EmptyList -> t  (* Rien à faire pour ces cas *)
-  | Add (t1, t2) -> Add (substitution x v t1, substitution x v t2)  (* Cas pour Add *)
-  | Sub (t1, t2) -> Sub (substitution x v t1, substitution x v t2)  (* Cas pour Sub *)
+  | Int _ | EmptyList | Unit -> t  (* Aucun changement pour ces cas *)
+  | Add (t1, t2) -> Add (substitution x v t1, substitution x v t2)
+  | Sub (t1, t2) -> Sub (substitution x v t1, substitution x v t2)
   | Cons (head, tail) -> Cons (substitution x v head, substitution x v tail)
   | IfZero (cond, then_br, else_br) ->
       IfZero (substitution x v cond, substitution x v then_br, substitution x v else_br)
@@ -310,66 +336,100 @@ let rec substitution (x : string) (v : pterm) (t : pterm) : pterm =
   | Fix (y, t) -> 
       if y = x then t
       else Fix (y, substitution x v t)
+  | Head t1 -> Head (substitution x v t1)
+  | Tail t1 -> Tail (substitution x v t1)
+  | Ref t1 -> Ref (substitution x v t1) 
+  | Deref t1 -> Deref (substitution x v t1)  
+  | Assign (t1, t2) -> Assign (substitution x v t1, substitution x v t2) 
   
-(* Mise à jour de la fonction `ltr_ctb_step` pour gérer les nouvelles fonctionnalités *)
+  
 let rec ltr_ctb_step (t : pterm) : pterm option =
   match t with
-  | Var _ | Int _ | EmptyList -> None  (* Pas de réduction possible pour ces termes *)
+  | Var _ | Int _ | EmptyList | Unit -> None  (* Pas de réduction possible pour ces termes *)
   | Abs (x, body) -> 
       (match ltr_ctb_step body with
-       | Some new_body -> Some (Abs (x, new_body))
-       | None -> None)
+        | Some new_body -> Some (Abs (x, new_body))
+        | None -> None)
   | App (Abs (x, t1), t2) ->
       (match ltr_ctb_step t2 with  
-       | Some t2' -> Some (substitution x t2' t1)  
-       | None -> Some (substitution x t2 t1))
+        | Some t2' -> Some (substitution x t2' t1)  
+        | None -> Some (substitution x t2 t1))
   | App (m, n) -> 
       (match ltr_ctb_step m with  
-       | Some m' -> Some (App (m', n))  
-       | None -> (match ltr_ctb_step n with  
-                 | Some n' -> Some (App (m, n'))  
-                 | None -> None))
+        | Some m' -> Some (App (m', n))  
+        | None -> (match ltr_ctb_step n with  
+                  | Some n' -> Some (App (m, n'))  
+                  | None -> None))
   | Add (Int n1, Int n2) -> Some (Int (n1 + n2))
   | Add (Int n1, t2) ->
       (match ltr_ctb_step t2 with
-       | Some t2' -> Some (Add (Int n1, t2'))
-       | None -> None)
+        | Some t2' -> Some (Add (Int n1, t2'))
+        | None -> None)
   | Add (t1, t2) ->
       (match ltr_ctb_step t1 with
-       | Some t1' -> Some (Add (t1', t2))
-       | None -> None)
+        | Some t1' -> Some (Add (t1', t2))
+        | None -> None)
   | Sub (Int n1, Int n2) -> Some (Int (n1 - n2))
   | Sub (Int n1, t2) ->
       (match ltr_ctb_step t2 with
-       | Some t2' -> Some (Sub (Int n1, t2'))
-       | None -> None)
+        | Some t2' -> Some (Sub (Int n1, t2'))
+        | None -> None)
   | Sub (t1, t2) ->
       (match ltr_ctb_step t1 with
-       | Some t1' -> Some (Sub (t1', t2))
-       | None -> None)
+        | Some t1' -> Some (Sub (t1', t2))
+        | None -> None)
   | IfZero (Int 0, then_br, _) -> Some then_br
   | IfZero (Int _, _, else_br) -> Some else_br
   | IfZero (cond, then_br, else_br) ->
       (match ltr_ctb_step cond with
-       | Some cond' -> Some (IfZero (cond', then_br, else_br))
-       | None -> None)
+        | Some cond' -> Some (IfZero (cond', then_br, else_br))
+        | None -> None)
   | IfEmpty (EmptyList, then_br, _) -> Some then_br
   | IfEmpty (Cons (_, _), _, else_br) -> Some else_br
   | IfEmpty (cond, then_br, else_br) ->
       (match ltr_ctb_step cond with
-       | Some cond' -> Some (IfEmpty (cond', then_br, else_br))
-       | None -> None)
+        | Some cond' -> Some (IfEmpty (cond', then_br, else_br))
+        | None -> None)
+  | Head (Cons (head, _)) -> Some head  
+  | Head t1 -> 
+      (match ltr_ctb_step t1 with
+        | Some t1' -> Some (Head t1')
+        | None -> failwith "Liste vide, impossible de faire head")
+  | Tail (Cons (_, tail)) -> Some tail  
+  | Tail t1 ->
+      (match ltr_ctb_step t1 with
+        | Some t1' -> Some (Tail t1')
+        | None -> failwith "Liste vide, impossible de faire tail")
   | Let (x, t1, t2) ->
       (match ltr_ctb_step t1 with
-       | Some t1' -> Some (Let (x, t1', t2))
-       | None -> Some (substitution x t1 t2))
+        | Some t1' -> Some (Let (x, t1', t2))
+        | None -> Some (substitution x t1 t2))
   | Fix (x, body) -> Some (substitution x (Fix (x, body)) body)
   | Cons (head, tail) ->
       (match ltr_ctb_step head with
-       | Some head' -> Some (Cons (head', tail))
-       | None -> match ltr_ctb_step tail with
-                 | Some tail' -> Some (Cons (head, tail'))
-                 | None -> None)
+        | Some head' -> Some (Cons (head', tail))
+        | None -> match ltr_ctb_step tail with
+                  | Some tail' -> Some (Cons (head, tail'))
+                  | None -> None)
+  | Ref v when isValeur v -> Some (Ref v)  
+  | Deref (Ref v) when isValeur v -> Some v  
+  | Assign (Ref v1, v2) when isValeur v1 && isValeur v2 -> Some Unit  
+  | Ref t1 -> 
+      (match ltr_ctb_step t1 with
+        | Some t1' -> Some (Ref t1')
+        | None -> None)
+  | Deref t1 -> 
+      (match ltr_ctb_step t1 with
+        | Some t1' -> Some (Deref t1')
+        | None -> None)
+  | Assign (t1, t2) -> 
+      (match ltr_ctb_step t1 with
+        | Some t1' -> Some (Assign (t1', t2))
+        | None -> (match ltr_ctb_step t2 with
+                  | Some t2' -> Some (Assign (t1, t2'))
+                  | None -> None))
+  
+
 let rec alphaconv (t : pterm) : pterm =
   match t with
   | Var x -> Var x
@@ -378,9 +438,9 @@ let rec alphaconv (t : pterm) : pterm =
       let x' = nouvelle_var () in
       let t' = alphaconv t in
       substitution x (Var x') t'
-  | Int _ | EmptyList -> t  (* Ces cas n'ont pas besoin de conversion *)
-  | Add (t1, t2) -> Add (alphaconv t1, alphaconv t2)  (* Cas pour Add *)
-  | Sub (t1, t2) -> Sub (alphaconv t1, alphaconv t2)  (* Cas pour Sub *)
+  | Int _ | EmptyList | Unit -> t  
+  | Add (t1, t2) -> Add (alphaconv t1, alphaconv t2)
+  | Sub (t1, t2) -> Sub (alphaconv t1, alphaconv t2)
   | Cons (head, tail) -> Cons (alphaconv head, alphaconv tail)
   | IfZero (cond, then_br, else_br) -> 
       IfZero (alphaconv cond, alphaconv then_br, alphaconv else_br)
@@ -392,35 +452,24 @@ let rec alphaconv (t : pterm) : pterm =
   | Fix (x, t) -> 
       let x' = nouvelle_var () in
       Fix (x', substitution x (Var x') (alphaconv t))
+  | Head t1 -> Head (alphaconv t1)
+  | Tail t1 -> Tail (alphaconv t1)
+  | Ref t1 -> Ref (alphaconv t1) 
+  | Deref t1 -> Deref (alphaconv t1)
+  | Assign (t1, t2) -> Assign (alphaconv t1, alphaconv t2)
+
+      
 let rec ltr_cbv_norm (t : pterm) : pterm =
   match (ltr_ctb_step t) with
   | Some reduc -> ltr_cbv_norm reduc
   | None -> t 
 
-(* Test 1 : Addition de deux entiers *)
-let t1 = Add (Int 1, Int 2)
-let env1 = []
-let type1 = Varp "T1"
-let equations1 = genere_equa t1 type1 env1
-let () = print_equations equations1
-
-(* Test 2 : IfZero avec des branches *)
-let t2 = IfZero (Int 0, Int 1, Int 2)
-let env2 = []
-let type2 = Varp "T2"
-let equations2 = genere_equa t2 type2 env2
-let () = print_equations equations2
-
-(* Test 3 : Liste vide et Cons *)
-let t3 = Cons (Int 1, EmptyList)
-let env3 = []
-let type3 = Varp "T3"
-let equations3 = genere_equa t3 type3 env3
-let () = print_equations equations3
-
-(* Test 4 : Let-polymorphisme *)
-let t4 = Let ("x", Int 5, Add (Var "x", Int 10))
-let env4 = []
-let type4 = Varp "T4"
-let equations4 = genere_equa t4 type4 env4
-let () = print_equations equations4
+  let test_deref = Deref (Ref (Int 42))
+  let () = print_endline ("Deref (Ref 42) = " ^ (print_term (ltr_cbv_norm test_deref)) ^ " (attendu : Int 42)")
+  
+  let test_assign = Assign (Ref (Int 1), Int 2)
+  let () = print_endline ("Assign (Ref 1, 2) = " ^ (print_term (ltr_cbv_norm test_assign)) ^ " (attendu : Unit)")
+  
+  let test_nested = Deref (Assign (Ref (Int 3), Int 4))
+  let () = print_endline ("Deref (Assign (Ref 3, 4)) = " ^ (print_term (ltr_cbv_norm test_nested)) ^ " (attendu : Int 4)")
+  

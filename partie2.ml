@@ -21,41 +21,38 @@ let rec isValeur (t : pterm) : bool =
   | Var _ -> true
   | Abs (_, _) -> true
   | App(t1, t2) -> (match t1 with 
-      | Var _ -> isValeur t2  (* x V est une valeur si t2 est aussi une valeur *)
+      | Var _ -> isValeur t2  
       | _ -> false)
     
 let rec alphaconv (t : pterm) : pterm =
   match t with
-  | Var x -> Var x  (* Cas de base : renvoyer la variable telle quelle *)
-  | App (t1, t2) -> App (alphaconv t1, alphaconv t2)  (* Appliquer alpha-conv sur les deux termes *)
+  | Var x -> Var x 
+  | App (t1, t2) -> App (alphaconv t1, alphaconv t2)  
   | Abs (x, t) -> 
-      let x' = nouvelle_var () in  (* Créer une nouvelle variable *)
-      let t' = alphaconv t in  (* Appliquer alpha-conv au corps de l'abstraction *)
-      (* Renommer toutes les occurrences de x dans t' par x' *)
+      let x' = nouvelle_var () in 
+      let t' = alphaconv t in  
       match t' with
-      | Abs (y, body) when y = x -> Abs (x', body)  (* Si y est la même variable, renommer *)
-      | _ -> Abs (x', t')  (* Sinon, on renvoie simplement t' *)
-
+      | Abs (y, body) when y = x -> Abs (x', body) 
+      | _ -> Abs (x', t')
       
-(* Fonction de substitution améliorée avec alpha-conversion *)
 let rec substitution (x : string) (v : pterm) (t : pterm) : pterm =
   match t with
   | Var y -> if y = x then v else t
   | App (t1, t2) -> App (substitution x v t1, substitution x v t2)
   | Abs (y, t1) ->
-      if y = x then t  (* Ne pas substituer si c'est la même variable *)
+      if y = x then t  
       else 
-        Abs (y, substitution x v t1)  (* Applique la substitution à t1 *)
+        Abs (y, substitution x v t1)  
 
 
 
 let rec ltr_ctb_step (t : pterm) : pterm option =
   match t with
-  | Var _ -> None  
-  | Abs (x, body) -> (match ltr_ctb_step body with
+  | Var _ -> None
+  | Abs (x, body) -> 
+    (match ltr_ctb_step body with
      | Some new_body -> Some (Abs (x, new_body))
-     | None -> None)
-  | App (Abs (x, t1), t2) ->
+     | None -> None)  | App (Abs (x, t1), t2) ->
         (match ltr_ctb_step t2 with  
         | Some t2' -> Some (substitution x t2' t1)  
         | None -> Some(substitution x t2 t1) )
@@ -65,7 +62,6 @@ let rec ltr_ctb_step (t : pterm) : pterm option =
       | None -> match ltr_ctb_step n with  
                 | Some n' -> Some (App (m, n'))  
                 | None -> None  
-        
             
 
 let rec ltr_cbv_norm (t : pterm) : pterm =
@@ -73,14 +69,37 @@ let rec ltr_cbv_norm (t : pterm) : pterm =
   | Some reduc -> ltr_cbv_norm reduc
   | None -> t 
 
-(* Définition des termes *)
 let i = Abs("x", Var "x")
 let k = Abs("x", Abs("y", Var "x"))
 let s = Abs("x", Abs("y", Abs("z", App(App(Var "x", Var "z"), App(Var "y", Var "z")))))
 
-(* Appliquons SKK *) 
 let skk = App(App(s,k),k)
 let ii = App((k,k))
 let result = ltr_cbv_norm(skk)
-(* Imprimer le résultat final *)
 let () = print_endline (print_term result)
+
+
+let church_zero = Abs("f", Abs("x", Var "x"))
+let church_one = Abs("f", Abs("x", App(Var "f", Var "x")))
+let church_two = Abs("f", Abs("x", App(Var "f", App(Var "f", Var "x"))))
+let church_three = Abs("f", Abs("x", App(Var "f", App(Var "f", App(Var "f", Var "x")))))
+
+let successeur = Abs("n", Abs("f", Abs("x", App(Var "f", App(App(Var "n", Var "f"), Var "x")))))
+let addition = Abs("m", Abs("n", Abs("f", Abs("x", App(App(Var "m", Var "f"), App(App(Var "n", Var "f"), Var "x"))))))
+let multiplication = Abs("m", Abs("n", Abs("f", App(Var "m", App(Var "n", Var "f")))))
+
+let puissance = Abs("m", Abs("n", Abs("f", Abs("x", App(App(Var "n", App(Var "m", Var "f")), Var "x")))))
+
+let test_church () =
+  let result_succ = ltr_cbv_norm (App(successeur, church_two)) in
+  let result_add = ltr_cbv_norm (App(App(addition, church_one), church_two)) in
+  let result_mult = ltr_cbv_norm (App(App(multiplication, church_two), church_three)) in
+  let result_pow = ltr_cbv_norm (App(App(puissance, church_two), church_three)) in
+  print_endline ("Successeur de 2 (attendu 3) : " ^ print_term result_succ);
+  print_endline ("1 + 2 (attendu 3) : " ^ print_term result_add);
+  print_endline ("2 * 3 (attendu 6) : " ^ print_term result_mult);
+  print_endline ("2 ^ 3 (attendu 8) : " ^ print_term result_pow)
+
+
+let () = test_church ()
+

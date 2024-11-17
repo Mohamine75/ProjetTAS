@@ -35,25 +35,23 @@ let rec cherche_type (v : string) (e : env) : ptype =
   let rec genere_equa (te : pterm) (ty : ptype) (e : env) : equa =
     match te with
     | Var v -> 
-        (* Recherche du type dans l'environnement *)
         let t_var = 
           try cherche_type v e 
           with _ -> failwith ("Variable non trouvée : " ^ v)
         in
         [(t_var, ty)]  
     | Abs (x, t) -> 
-        (* Vérifie si le type de x est déjà dans l'environnement, sinon génère une nouvelle variable *)
         let ta = 
           try cherche_type x e 
           with _ -> Varp (nouvelle_var_t ()) 
         in
-        let tr = Varp (nouvelle_var_t ()) in  (* Génère un type frais pour le corps *)
+        let tr = Varp (nouvelle_var_t ()) in  
         let e' = (x, ta) :: e in
         let equa_body = genere_equa t tr e' in
         (ty, Arr (ta, tr)) :: equa_body
   
     | App (t1, t2) -> 
-        let ta = Varp (nouvelle_var_t ()) in  (* Génère une nouvelle variable pour l'argument *)
+        let ta = Varp (nouvelle_var_t ()) in  
         let equa_t1 = genere_equa t1 (Arr (ta, ty)) e in
         let equa_t2 = genere_equa t2 ta e in
         equa_t1 @ equa_t2
@@ -75,9 +73,9 @@ let rec egalite_type (t1 : ptype) ( t2 :ptype) : bool =
 
 let rec substitution_type (s : string) (t_sub : ptype) (ty : ptype) : ptype =
   match ty with
-  | Varp x -> if x = s then t_sub else ty  (* Remplace si c'est la variable à substituer *)
-  | Arr (t1, t2) -> Arr (substitution_type s t_sub t1, substitution_type s t_sub t2)  (* Applique récursivement aux sous-types *)
-  | Nat -> Nat  (* Aucun changement pour Nat *) 
+  | Varp x -> if x = s then t_sub else ty 
+  | Arr (t1, t2) -> Arr (substitution_type s t_sub t1, substitution_type s t_sub t2)  
+  | Nat -> Nat  
 
 let rec substitution_systeme (s : string) (t_sub : ptype) (systeme :equa) : equa=
   List.map (fun (t1, t2) -> 
@@ -132,7 +130,7 @@ let rec uni_step (eq : equa) (subs : equa) : equa =
         | _ -> failwith "Unification échoue : types incompatibles"
 
   let resoudre_equations equations limit = 
-  try Some (uni_step equations [])  (* Retourne simplement le résultat de uni_step, sans tuple *)
+  try Some (uni_step equations [])  
   with _ -> None
 ;;
 
@@ -152,7 +150,6 @@ let rec print_equations equations =
 let trouver_variable_originale (equations : equa) (t : ptype) : ptype =
   match t with
   | Varp _ ->
-      (* Rechercher une clé dans les équations dont la valeur est équivalente à `t` *)
       (try
           List.find (fun (_, t2) -> t2 = t) equations |> fst
         with Not_found -> t)
